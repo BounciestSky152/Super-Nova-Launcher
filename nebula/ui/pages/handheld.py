@@ -1,4 +1,4 @@
-"""Big Picture style screens for handheld mode: tabs switched with the bumpers, the focused game's artwork
+"""The screens of handheld mode: tabs switched with the bumpers, the focused game's artwork
 behind everything, shelves of large covers, a library with sections, a GOG store and full-screen game cards.
 Everything is sized from the screen height, so it scales from a 7" handheld to a TV."""
 from __future__ import annotations
@@ -107,7 +107,7 @@ class Prompts(QWidget):
         super().__init__()
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        self.hint = label("F12  Exit Big Picture", "Faint")
+        self.hint = label("F12  Exit handheld mode", "Faint")
         lay.addWidget(self.hint)
         lay.addStretch(1)
         self.items = list(items)
@@ -926,6 +926,9 @@ class HandheldGamePage(CardPage):
         self.fav = self.add_button()
         self.more = self.add_button()
         self.more.setText("Full details")
+        self.upd = self.add_button()  # only when a newer version exists: playing never updates by itself
+        self.upd.clicked.connect(self._update)
+        self.upd.hide()
         self.play.clicked.connect(lambda: self.ctl.primary_action(self.key))
         self.fav.clicked.connect(lambda: self.ctl.toggle_favorite(self.key))
         self.more.clicked.connect(lambda: self.win.navigate("game", self.key))
@@ -941,6 +944,12 @@ class HandheldGamePage(CardPage):
             self.key = arg
         self._refresh()
         QTimer.singleShot(0, self.play.setFocus)
+
+    def _update(self) -> None:
+        e = self.s.library.entry(self.key)
+        target = self.ctl.update_target(e) if e else None
+        if target is not None:
+            self.ctl.change_version(target)
 
     def _runs_with(self, inst) -> str:
         if inst is None:
@@ -1011,7 +1020,7 @@ class HandheldGamePage(CardPage):
         ))
         state = self.ctl.game_state(e)
         text = {"running": "■  STOP", "preparing": "STARTING…", "job": "DOWNLOADING…",
-                "update": "⬇  UPDATE" if self.ctl.update_target(e) else "▶  PLAY",
+                "update": "▶  PLAY",
                 "installed": "▶  PLAY", "not_installed": "⬇  INSTALL"}[state]
         st = self.s.launcher.entry_running(e) if state == "running" else None
         if st is not None and st.proc is None and not st.pids and not st.external:
@@ -1020,6 +1029,11 @@ class HandheldGamePage(CardPage):
             text = f"STARTING IN {client.upper()}…"
         self.play.setText(text)
         self.play.setEnabled(state not in ("preparing", "job"))
+        target = self.ctl.update_target(e) if state == "update" else None
+        note = self.ctl.update_note(target) if target is not None else ""
+        self.upd.setVisible(bool(note))
+        self.upd.setText("⬇  Update to " + note.removeprefix("version ").removesuffix(" is available")
+                         if note.startswith("version ") else "⬇  Update")
         self.fav.setText("♥  Favourite" if e.user.favorite else "♡  Favourite")
         desc = next((g.description for g in e.games if g.description), "")
         self.desc.setText(shorten(desc, 900))

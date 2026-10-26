@@ -156,7 +156,7 @@ class MainWindow(QMainWindow):
             theme.MODE = ""  # force the style sheet to be rebuilt below
             self._set_handheld(handheld)
         if handheld and mode == "supernova":
-            mode = "nebula"  # Big Picture's screens are made for a dark sky
+            mode = "nebula"  # handheld mode's screens are made for a dark sky
         was_light = theme.light()
         self.starfield.set_variant(mode)
         if fonts != (theme.FONTS["ui"], theme.FONTS["display"], theme.FONTS["sidebar"]) or mode != theme.MODE:
@@ -316,7 +316,7 @@ class MainWindow(QMainWindow):
         self._rebuild_tray_menu()
 
     def _game_detected(self, uid: str) -> None:
-        """A game started through Steam (or another client) is up: in Big Picture, step aside so it isn't
+        """A game started through Steam (or another client) is up: in handheld mode, step aside so it isn't
         stuck behind the full-screen launcher; it comes back when the game exits."""
         if theme.HANDHELD and self.isVisible() and not self.isMinimized():
             self._stepped_aside = uid

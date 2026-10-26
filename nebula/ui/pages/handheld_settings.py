@@ -1,4 +1,4 @@
-"""Settings for Big Picture mode, built for a controller: a column of sections on the left and, beside it,
+"""Settings for handheld mode, built for a controller: a column of sections on the left and, beside it,
 large rows the D-pad walks through. Left/right change a value, A toggles, opens or runs it, B goes back."""
 from __future__ import annotations
 
@@ -287,7 +287,7 @@ class HandheldSettingsPage(Page):
             return s.self_update.message or "Not checked yet this session"
 
         return [
-            ("Big Picture", [
+            ("Handheld", [
                 ChoiceRow(self, "general.launch_behaviour", "When a game starts", [
                     ("keep", "Keep Super Nova open"), ("minimize", "Minimise Super Nova"), ("hide", "Hide to tray")]),
                 ToggleRow(self, "appearance.fun", "Fun extras", "Launch warp, seasonal skies and a few secrets"),
@@ -295,8 +295,8 @@ class HandheldSettingsPage(Page):
                 ToggleRow(self, "appearance.animate_stars", "Animated stars", "Pauses while a game is running"),
                 ChoiceRow(self, "appearance.theme", "Theme", [("nebula", "Nebula"), ("supernova", "Super Nova (light)"),
                                                               ("classic", "Classic")],
-                          "Big Picture always uses the dark sky; Super Nova lights up the desktop layout"),
-                ActionRow(self, "Exit Big Picture", "Exit", lambda: st.set("handheld.mode", "off"),
+                          "Handheld mode always uses the dark sky; Super Nova lights up the desktop layout"),
+                ActionRow(self, "Exit handheld mode", "Exit", lambda: st.set("handheld.mode", "off"),
                           "Back to the desktop layout (F12 does the same)"),
             ]),
             ("Account", [
@@ -446,6 +446,7 @@ class HandheldSettingsPage(Page):
     def on_show(self, arg=None) -> None:
         self.close_editor()
         self._refresh()
+        self.cats[self.index].setFocus()  # now, and again once the page switch has settled
         QTimer.singleShot(0, self.cats[self.index].setFocus)
 
     def set_controller(self, kind: str) -> None:

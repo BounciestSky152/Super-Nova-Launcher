@@ -32,7 +32,7 @@ def test_settings_with_a_controller(qapp, services, errors):
     w = MainWindow(services)
     w.show()
     w.activateWindow()
-    w.start_page()  # Big Picture home
+    w.start_page()  # handheld home
     pump(qapp)
     page = w.pages["settings"]
 
@@ -43,7 +43,7 @@ def test_settings_with_a_controller(qapp, services, errors):
     def focused():
         return QApplication.focusWidget()
 
-    w.navigate("settings", "full")  # the desktop settings page, reached from Big Picture settings > About
+    w.navigate("settings", "full")  # the desktop settings page, reached from handheld settings > About
     pump(qapp)
     assert w.stack.currentWidget() is page and page.prompts.isVisible()
     assert isinstance(focused(), QTabBar)
@@ -134,7 +134,7 @@ def test_keyboard_layers(qapp):
     assert kb.submit_key.text() == "Done"
 
 
-def test_big_picture_settings(qapp, services, errors):
+def test_handheld_settings_page(qapp, services, errors):
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication
 
@@ -157,9 +157,14 @@ def test_big_picture_settings(qapp, services, errors):
     w.windowHandle().requestActivate()
     QApplication.setActiveWindow(w)
     end = time.time() + 3
-    while QApplication.activeWindow() is not w and time.time() < end:
+    from PySide6.QtGui import QGuiApplication
+
+    def active():
+        return QApplication.activeWindow() is w and QGuiApplication.focusWindow() is w.windowHandle()
+
+    while not active() and time.time() < end:
         pump(qapp, 0.05)
-    if QApplication.activeWindow() is not w:  # keyboard focus needs an active window
+    if not active():  # keyboard focus needs the window focused by the platform
         pytest.skip("the offscreen platform did not activate the window after the earlier UI tests")
     page = w.pages["handheld_settings"]
 
@@ -217,7 +222,7 @@ def test_big_picture_settings(qapp, services, errors):
     assert services.settings.get("updates.branch").endswith("q") and not services.settings.get(
         "updates.branch").endswith("qq")
 
-    press(Qt.Key.Key_Escape)  # B: rows -> sections -> back to Big Picture
+    press(Qt.Key.Key_Escape)  # B: rows -> sections -> back to the handheld home
     assert focused() is page.cats[page.index]
     press(Qt.Key.Key_Escape)
     assert w.stack.currentWidget() is w.pages["handheld"]

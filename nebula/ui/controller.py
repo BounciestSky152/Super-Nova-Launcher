@@ -53,9 +53,9 @@ class UiController:
         return None
 
     # ------------------------------------------------------- main action
-    def primary_action(self, key: str, update: bool = True) -> None:
-        """PLAY / UPDATE / INSTALL / STOP. ``update=False`` launches an outdated game instead of updating it
-        (the cover play buttons, which always show a play icon)."""
+    def primary_action(self, key: str, update: bool = False) -> None:
+        """PLAY / INSTALL / STOP. An outdated game is played (a notice says an update exists) unless ``update``
+        asks for the update instead; updates are always the user's explicit choice."""
         e = self.entry(key)
         if not e:
             return
@@ -77,6 +77,25 @@ class UiController:
         if game is None:
             return
         self.s.launcher.launch(game.uid, task_id)
+        note = self.update_note(game)
+        if note:
+            self.w.toast(f"{game.title}: {note}", "Update from the game page whenever you like.")
+
+    def update_note(self, game, info=None) -> str:
+        """"Version 4.04 is available" for an outdated copy ("" when there's no update, or when the user chose to
+        stay on an older version: pinned copies never report one)."""
+        if not (game.installed and game.update_available) or self.s.db.get_config(game.uid).get("pin_version") \
+                or game.source in HANDOFF_SOURCES or not self.integ(game).supports(base.UPDATE):
+            return ""  # Steam and co. update their games themselves
+        if info is None:
+            try:
+                info = self.integ(game).version_info(game, fetch=False)
+            except Exception:  # noqa: BLE001
+                info = None
+        latest = info.latest if info is not None else None
+        newer = latest is not None and (latest.id or latest.version) not in (info.installed.id or None,
+                                                                             info.installed.version or None)
+        return f"version {latest.label} is available" if newer else "an update is available"
 
     def stop(self, entry) -> None:
         st = self.s.launcher.entry_running(entry)

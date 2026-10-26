@@ -287,7 +287,7 @@ def test_game_page_version_card(qapp, services, errors, caplog, monkeypatch, tmp
     assert card.update_btn.isVisible() and card.update_btn.text() == "Update to 2.0"
     assert card.change_btn.isVisible() and card.cur_value.text() == "1.0"
     assert services.library.game(g.uid).update_available
-    assert gp.play.text() == "UPDATE"
+    assert gp.play.text() == "PLAY" and gp.update_note.isVisibleTo(gp)  # playing first, the update beside it
     assert [c for c in calls if c[1]] == [("123", True, False)], "one live check, served to the card"
 
     # Info tab
@@ -299,20 +299,20 @@ def test_game_page_version_card(qapp, services, errors, caplog, monkeypatch, tmp
     assert rows["VERSION RELEASED"] == "1 Jan 2024"
     gp.tabs.setCurrentIndex(0)
 
-    # the play menu keeps "Play without updating" and offers the change-version dialog
+    # PLAY plays an outdated game too; the play menu and the note beside PLAY offer the update
     gp._build_play_menu()  # noqa: SLF001
     texts = [a.text() for a in gp.play_menu.actions()]
-    assert "Play without updating" in texts and "Change version…" in texts
+    assert "Update now" in texts and "Change version…" in texts and "Play without updating" not in texts
+    assert gp.play.text() == "PLAY" and gp.update_note.isVisibleTo(gp) and "2.0" in gp.update_note.text()
 
-    # UPDATE updates (it no longer launches); the card's button too; cover play buttons still launch
     updates, launches = [], []
     monkeypatch.setattr(services.actions, "update", lambda game, **kw: updates.append((game.uid, kw)))
     monkeypatch.setattr(services.launcher, "launch", lambda uid, task_id="": launches.append(uid))
     monkeypatch.setattr(w.ctl, "ask_instance", lambda game, label="": "update")  # this install, not a new one
     gp.play.click()
     card.update_btn.click()
-    w.ctl.primary_action(key, update=False)
-    assert updates == [(g.uid, {}), (g.uid, {"version": "", "change": "update", "label": "2.0"})]
+    gp.update_note.click()
+    assert updates == [(g.uid, {"version": "", "change": "update", "label": "2.0"}), (g.uid, {})]
     assert launches == [g.uid]
 
     # the refresh button forces a new check
@@ -367,11 +367,11 @@ def test_version_card_pin_toggle(qapp, services, errors, caplog, monkeypatch, tm
     gp, card = w.pages["game"], w.pages["game"].version_card
     w.navigate("game", services.library.entry_for_uid(g.uid).key)
     pump(qapp, until=lambda: not card.new_spin._timer.isActive())  # noqa: SLF001
-    assert gp.play.text() == "UPDATE" and card.auto_cb.isEnabled()
+    assert gp.update_note.isVisibleTo(gp) and card.auto_cb.isEnabled()
 
     card.pin_cb.click()  # stay on 1.0
     assert services.db.get_config(g.uid).get("pin_version") is True
-    assert not services.library.game(g.uid).update_available and gp.play.text() == "PLAY"
+    assert not services.library.game(g.uid).update_available and not gp.update_note.isVisibleTo(gp)
     assert card.pin_cb.isChecked() and card.pill.text() == "Staying on 1.0" and not card.auto_cb.isEnabled()
     assert card.update_btn.objectName() != "Primary"
     gp.tabs.setCurrentIndex(4)
@@ -382,10 +382,10 @@ def test_version_card_pin_toggle(qapp, services, errors, caplog, monkeypatch, tm
     n = len(calls)
     card.pin_cb.click()  # updates allowed again: the flag comes back at once (no network), then a fresh check
     assert services.db.get_config(g.uid).get("pin_version") is False
-    assert services.library.game(g.uid).update_available and gp.play.text() == "UPDATE"
+    assert services.library.game(g.uid).update_available and gp.update_note.isVisibleTo(gp)
     assert not card.pin_cb.isChecked() and card.pill.text() == "Update available"
     pump(qapp, until=lambda: ("123", True, True) in calls[n:] and not card.new_spin._timer.isActive())  # noqa: SLF001
-    assert ("123", True, True) in calls[n:] and gp.play.text() == "UPDATE"
+    assert ("123", True, True) in calls[n:] and gp.update_note.isVisibleTo(gp)
 
     card.auto_cb.click()  # per-game automatic updates
     assert services.db.get_config(g.uid).get("auto_update") is False and not card.auto_cb.isChecked()
@@ -442,13 +442,15 @@ def test_controller_versions_dispatch_and_busy(qapp, services, errors, monkeypat
     infos["123"] = VersionInfo(kind="installer", installed=BuildRef(version="1.0", current=True))
     assert "Change version…" not in manage_texts()
 
-    # PLAY/UPDATE: an outdated GOG copy updates, Steam updates its games itself (launch)
+    # PLAY plays an outdated copy (the update is a separate choice); Steam updates its games itself
     services.library.game(g.uid).update_available = True
     services.library.rebuild()
     w.ctl.primary_action(services.library.entry_for_uid(g.uid).key)
+    assert launches == [g.uid] and len(updates) == 1
+    w.ctl.primary_action(services.library.entry_for_uid(g.uid).key, update=True)
     assert updates[-1] == (g.uid, {})
     w.ctl.primary_action(services.library.entry_for_uid("steam:7").key)
-    assert launches == ["steam:7"] and len(updates) == 2
+    assert launches == [g.uid, "steam:7"] and len(updates) == 2
 
     # changing the version of an installed copy can add it as a new instance instead
     added = []

@@ -141,6 +141,18 @@ class GamePage(Page):
         self.play_menu_btn.setMenu(self.play_menu)
         actions.addWidget(self.play)
         actions.addWidget(self.play_menu_btn)
+        actions.addSpacing(12)
+        self.update_note = QPushButton()
+        self.update_note.setObjectName("UpdateNote")
+        self.update_note.setIcon(icons.icon("download", theme.WARNING))
+        self.update_note.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.update_note.setToolTip("A newer version is out. Click to update (you can keep playing this one).")
+        self.update_note.setStyleSheet(f"QPushButton#UpdateNote {{ color: {theme.WARNING}; background: transparent;"
+                                       f" border: 1px solid {theme.WARNING}; border-radius: 12px; padding: 4px 10px;"
+                                       " font-weight: 600; }")
+        self.update_note.clicked.connect(self._update_from_note)
+        self.update_note.hide()
+        actions.addWidget(self.update_note)
         # progress box shown during installs/updates
         self.job_box = QFrame()
         jl = QHBoxLayout(self.job_box)
@@ -597,10 +609,15 @@ class GamePage(Page):
             self.prep_spin.start()
         else:
             self.prep_spin.stop()
+        target = self.ctl.update_target(e) if state == "update" else None
+        note = self.ctl.update_note(target, self._version_info(target)) if target is not None else ""
+        self.update_note.setText(f"Update available · {note.removeprefix('version ').removesuffix(' is available')}"
+                                 if note.startswith("version ") else "Update available")
+        self.update_note.setVisible(bool(note) and job is None)
         text, prop = {
             "running": ("PLAYING", "running"),
             "preparing": ("STARTING", "busy"),
-            "update": ("UPDATE", "update"),
+            "update": ("PLAY", ""),  # playing comes first; the note beside the button offers the update
             "installed": ("PLAY", ""),
             "not_installed": ("INSTALL", ""),
             "job": ("", ""),
@@ -608,9 +625,8 @@ class GamePage(Page):
         if state == "not_installed" and not self.s.integration(e.primary.source).supports(base.INSTALL):
             text = "UNAVAILABLE"
         self.play.setText(text)
-        ink = "#2b1400" if theme.light() and state == "update" else "white"  # Super Nova's update is gold
-        self.play.setIcon(icons.icon({"running": "stop", "installed": "play", "update": "download",
-                                      "not_installed": "download"}.get(state, "play"), ink))
+        self.play.setIcon(icons.icon({"running": "stop", "installed": "play", "update": "play",
+                                      "not_installed": "download"}.get(state, "play"), "white"))
         self.play.setProperty("state", prop)
         self.play.style().unpolish(self.play)
         self.play.style().polish(self.play)
@@ -656,6 +672,12 @@ class GamePage(Page):
             self.ctl.settings(g)
             self._refresh_header()
 
+    def _update_from_note(self) -> None:
+        e = self.s.library.entry(self.key) or self.entry
+        target = self.ctl.update_target(e) if e else None
+        if target is not None:
+            self.ctl.change_version(target)
+
     def _build_play_menu(self) -> None:
         m = self.play_menu
         m.clear()
@@ -666,8 +688,9 @@ class GamePage(Page):
         if state in ("installed", "update"):
             g = self.ctl.installed_game(e)
             integ = self.s.integration(g.source)
-            if state == "update" and self.ctl.update_target(e) is not None:  # UPDATE updates rather than plays
-                m.addAction(icons.icon("play"), "Play without updating", lambda: self.ctl.play(e))
+            target = self.ctl.update_target(e) if state == "update" else None
+            if target is not None:  # PLAY plays; updating is a choice
+                m.addAction(icons.icon("download"), "Update now", lambda: self.ctl.change_version(target))
             for t in integ.launch_tasks(g):
                 if t.primary and state != "update":
                     continue
