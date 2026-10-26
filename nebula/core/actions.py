@@ -166,6 +166,15 @@ class Actions:
         return self._job(game, "repair", f"Verify {game.title}",
                          lambda integ, g, ctx: integ.repair(g, ctx), "Files verified and repaired")
 
+    def set_dlcs(self, game: Game, dlc_ids: list[str]):
+        """Install exactly these DLC for ``game``: add the missing ones, remove the rest."""
+        have = set(game.extra.get("installed_dlcs", []))
+        adding, removing = set(dlc_ids) - have, have - set(dlc_ids)
+        verb = "Changing DLC" if adding and removing else "Removing DLC" if removing else "Installing DLC"
+        done = {"Changing DLC": "DLC changed", "Removing DLC": "DLC removed"}.get(verb, "DLC installed")
+        return self._job(game, "dlc", f"DLC for {game.title}",
+                         lambda integ, g, ctx: integ.set_dlcs(g, list(dlc_ids), ctx), done, verb=verb, verb_done=done)
+
     def install_dlcs(self, game: Game, dlc_ids: list[str]):
         return self._job(game, "dlc", f"DLC for {game.title}",
                          lambda integ, g, ctx: integ.install_dlcs(g, dlc_ids, ctx), "DLC installed")

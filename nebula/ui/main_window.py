@@ -38,6 +38,8 @@ class MainWindow(QMainWindow):
     def __init__(self, services):
         super().__init__()
         self.s = services
+        if services.settings.get("handheld.mode") != "on":  # handheld mode is always dark
+            theme.prepare(QApplication.instance(), services.settings.get("appearance.theme") or "nebula")
         self.setWindowTitle(APP_NAME)
         self.setWindowIcon(icons.app_icon())
         self.resize(1440, 900)
@@ -157,12 +159,9 @@ class MainWindow(QMainWindow):
             self._set_handheld(handheld)
         if handheld and mode == "supernova":
             mode = "nebula"  # handheld mode's screens are made for a dark sky
-        was_light = theme.light()
         self.starfield.set_variant(mode)
         if fonts != (theme.FONTS["ui"], theme.FONTS["display"], theme.FONTS["sidebar"]) or mode != theme.MODE:
             theme.set_fonts(QApplication.instance(), *fonts, mode=mode)
-            if theme.light() != was_light and self.isVisible() and not handheld:
-                self.toast("Theme", f"Restart {APP_NAME} to finish switching every screen to the new colours.")
             self.sidebar.orbit.arrange()
             for w in self.sidebar.findChildren(QWidget) + [self.sidebar]:
                 w.update()

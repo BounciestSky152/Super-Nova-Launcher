@@ -395,3 +395,29 @@ def test_install_no_offline_fallback_on_network_error(services, fake, monkeypatc
     monkeypatch.setattr(gog.api, "builds", lambda *a, **k: [])
     monkeypatch.setattr(gog, "_offline", lambda *a, **k: "offline")
     assert gog.install(game, request, make_ctx()) == "offline"
+
+
+def test_dlc_can_be_removed_and_added_again(services, fake, server, monkeypatch, tmp_path):
+    from nebula.core.models import Game
+    from nebula.integrations.base import InstallRequest
+
+    def dlc_chunk(req):
+        path = req.path.replace("/store/999/token=abc", "/store/123")
+        return (200, {}, server.files[path]) if path in server.files else (404, {}, b"")
+
+    server.handlers[("GET", "/store/999/token=abc/")] = dlc_chunk
+    monkeypatch.setattr(content.time, "sleep", lambda s: None)
+    fake.add_build("b1", "1.0", {"game.bin": b"base"}, dlc_files={"dlc/extra.pak": b"dlc data"})
+    gog = gog_for(services, fake, monkeypatch, owned=("123", "999"))
+    game = gog.install(Game("gog", "123", "Test Game", os_support=["windows"]),
+                       InstallRequest(platform="windows", base_dir=str(tmp_path / "lib"), dlcs=["999"]), make_ctx())
+    root = tmp_path / "lib" / "Test Game"
+    assert (root / "dlc" / "extra.pak").exists()
+
+    game = gog.set_dlcs(game, [], make_ctx())  # remove it
+    rec = gog.install_record("123")
+    assert not (root / "dlc" / "extra.pak").exists() and (root / "game.bin").read_bytes() == b"base"
+    assert rec["dlcs"] == [] and rec["dlcs_wanted"] == [] and game.extra["installed_dlcs"] == []
+
+    game = gog.set_dlcs(game, ["999"], make_ctx())  # and back
+    assert (root / "dlc" / "extra.pak").read_bytes() == b"dlc data" and gog.install_record("123")["dlcs"] == ["999"]

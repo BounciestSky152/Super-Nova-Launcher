@@ -213,12 +213,24 @@ class UiController:
     def manage_dlc(self, game) -> None:
         from nebula.ui.dialogs.misc import DlcDialog
 
+        integ = self.integ(game)
+
+        def load():
+            if hasattr(integ, "owned_ids"):
+                integ.owned_ids(refresh=True)  # DLC bought a moment ago counts as owned
+            return integ.details(game)
+
         def show(details):
             dlg = DlcDialog(details, self.w)
-            if dlg.exec() and dlg.selected():
-                self.s.actions.install_dlcs(game, dlg.selected())
+            if dlg.exec() and set(dlg.wanted()) != dlg.installed:
+                self.set_dlcs(game, dlg.wanted())
 
-        tasks.run_async(self.integ(game).details, game, on_done=show)
+        tasks.run_async(load, on_done=show)
+
+    def set_dlcs(self, game, wanted: list[str]) -> None:
+        job = self.s.actions.set_dlcs(game, wanted)
+        if job:
+            self.w.toast(game.title, f"{job.verb} — added to the download queue")
 
     def settings(self, game) -> None:
         from nebula.ui.dialogs.game_settings import GameSettingsDialog
@@ -404,7 +416,7 @@ class UiController:
                 if vi and vi.kind == "builds":
                     manage.addAction(icons.icon("history"), "Change version…", lambda: self.versions(game))
             if integ.supports(base.DLC):
-                manage.addAction(icons.icon("layers"), "Install DLC…", lambda: self.manage_dlc(game))
+                manage.addAction(icons.icon("layers"), "Manage DLC…", lambda: self.manage_dlc(game))
             if integ.supports(base.CLOUD_SAVES):
                 manage.addAction(icons.icon("cloud"), "Sync cloud saves", lambda: self.cloud_sync(game))
             manage.addAction(icons.icon("terminal"), "Open launch log", lambda: self.open_log(game))

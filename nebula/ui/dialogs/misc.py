@@ -284,31 +284,43 @@ class SteamApiDialog(QDialog):
 
 
 class DlcDialog(QDialog):
+    """Every DLC of a game: ticked = installed. Ticking installs, unticking removes; DLC you don't own is listed
+    but can't be ticked."""
+
     def __init__(self, details, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Manage DLC")
-        self.setMinimumSize(440, 380)
+        self.setMinimumSize(460, 400)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(18, 18, 18, 18)
-        lay.addWidget(label("Install additional DLC", "SectionTitle"))
+        lay.addWidget(label("DLC", "SectionTitle"))
+        lay.addWidget(label("Tick the DLC you want installed. Unticking an installed one removes it.", "Subtle",
+                            wrap=True))
         self.list = QListWidget()
+        self.installed: set[str] = set()
         for d in details.dlcs:
-            if not d.get("owned") or d.get("installed"):
-                continue
-            it = QListWidgetItem(d["title"])
+            state = "installed" if d.get("installed") else "not installed" if d.get("owned") else "not owned"
+            it = QListWidgetItem(f"{d['title']}   ({state})")
             it.setData(Qt.ItemDataRole.UserRole, d["id"])
-            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            it.setCheckState(Qt.CheckState.Checked)
+            if d.get("owned"):
+                it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                it.setCheckState(Qt.CheckState.Checked if d.get("installed") else Qt.CheckState.Unchecked)
+            else:
+                it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+            if d.get("installed"):
+                self.installed.add(d["id"])
             self.list.addItem(it)
         if not self.list.count():
-            self.list.addItem("All owned DLC is already installed.")
+            self.list.addItem("This game has no DLC.")
         lay.addWidget(self.list, 1)
-        lay.addLayout(_buttons(self, "Install"))
+        lay.addLayout(_buttons(self, "Apply"))
 
-    def selected(self) -> list[str]:
+    def wanted(self) -> list[str]:
+        """The DLC ticked (to be installed)."""
         return [self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())
-                if self.list.item(i).data(Qt.ItemDataRole.UserRole) and
-                self.list.item(i).checkState() == Qt.CheckState.Checked]
+                if self.list.item(i).data(Qt.ItemDataRole.UserRole)
+                and self.list.item(i).flags() & Qt.ItemFlag.ItemIsUserCheckable
+                and self.list.item(i).checkState() == Qt.CheckState.Checked]
 
 
 class TextInputDialog(QDialog):

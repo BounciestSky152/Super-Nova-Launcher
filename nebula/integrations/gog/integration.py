@@ -697,6 +697,48 @@ class GogIntegration(Integration):
         return self._offline(game, ctx, rec.get("platform", "linux"), language=rec.get("language", ""),
                              dlcs=rec.get("dlcs", []), existing=Path(game.install_path))
 
+    def set_dlcs(self, game: Game, dlc_ids: list[str], ctx: JobContext) -> Game:
+        """Make the installed DLC exactly ``dlc_ids``: missing ones are installed, the others removed (their files
+        go, unless the base game or another DLC still uses them)."""
+        rec = self.install_record(self.rkey(game)) or {}
+        wanted = sorted(set(dlc_ids))
+        if rec.get("method", "").endswith("gen2"):
+            return self._gen2(game, ctx, "update", build_id=str(rec.get("build_id", "")), dlcs=wanted, same_build=True)
+        have = set(rec.get("dlcs", []))
+        drop = sorted(have - set(wanted))
+        if drop:
+            ctx.stage("Removing DLC")
+            self._remove_installer_dlcs(game, drop)
+        add = sorted(set(wanted) - have)
+        if add:
+            return self._offline(game, ctx, rec.get("platform", "linux"), language=rec.get("language", ""),
+                                 dlcs=add, existing=Path(game.install_path), dlc_only=True, all_dlcs=wanted)
+        with self._rec_lock:
+            data = self.installs()
+            if self.rkey(game) in data:
+                data[self.rkey(game)].update(dlcs=wanted, size=dir_size(Path(game.install_path)))
+                self.db.kv_set(INSTALLS_KEY, data)
+        self._apply_record(game, self.install_record(self.rkey(game)))
+        return game
+
+    def _remove_installer_dlcs(self, game: Game, dlc_ids: list[str]) -> None:
+        """Delete the files of DLC installed from offline installers, using the file lists kept per package."""
+        key = f"{self.rkey(game)}-installer"
+        lists = dict((content.load_manifest(key) or {}).get("packages", {}))
+        missing = [d for d in dlc_ids if d not in lists]
+        if missing:
+            raise base.NotSupported("This DLC was installed before Super Nova kept a list of its files, so it can't "
+                                    "be removed on its own. Uninstall the game and install it again without it.")
+        root = Path(game.install_path)
+        for did in dlc_ids:
+            files = lists.pop(did)
+            still_used = {f for pkg in lists.values() for f in pkg}
+            for rel in files:
+                p = root / rel
+                if rel not in still_used and (p.is_symlink() or p.is_file()):
+                    p.unlink()
+        content.save_manifest(key, {"packages": lists})
+
     def install_dlcs(self, game: Game, dlc_ids: list[str], ctx: JobContext) -> Game:
         rec = self.install_record(self.rkey(game)) or {}
         dlcs = sorted(set(rec.get("dlcs_wanted", [])) | set(rec.get("dlcs", [])) | set(dlc_ids))
@@ -780,7 +822,7 @@ class GogIntegration(Integration):
             to_get = [f for f in fs.files
                       if f.path.lower() not in old_files or not f.same_content(old_files[f.path.lower()])
                       or not executor.resolved_target(f).exists()]
-            if not same_build:
+            if not same_build or set(rec.get("dlcs", [])) - set(dlc_list):  # another build, or DLC removed
                 deletions = [f for k, f in old_files.items() if k not in new_keys]
         ctx.stage({"install": "Downloading", "update": "Updating", "repair": "Repairing"}[mode]
                   + (f" ({len(to_get)} files)" if to_get else ""))
@@ -839,19 +881,18 @@ class GogIntegration(Integration):
         install_dir.mkdir(parents=True, exist_ok=True)
         (install_dir / content.MARKER_FILE).write_text(json.dumps({"source": "gog", "id": game.source_id}))
         cache = offline.cache_dir_for(game.source_id)
-        packages: list[tuple[str, dict]] = [] if dlc_only else [(game.title, inst)]
+        packages: list[tuple[str, str, dict]] = [] if dlc_only else [(game.source_id, game.title, inst)]
         owned = self.owned_ids()
         for dlc in product.get("expanded_dlcs", []) or []:
             did = str(dlc.get("id"))
             if did in (dlcs or []) and did in owned:
                 di = offline.pick_installer(offline.installers_for(dlc, platform), inst.get("language", "en"))
                 if di:
-                    packages.append((dlc.get("title", did), di))
+                    packages.append((did, dlc.get("title", did), di))
         saved = (content.load_manifest(f"{self.rkey(game)}-installer") or {}) if existing else {}
         lists = dict(saved.get("packages", {}))
-        for title, package in packages:
+        for pkg, title, package in packages:
             ctx.check()
-            pkg = str(package.get("id") or title)
             if platform == "linux" and package.get("files"):
                 # straight from the server: only the compressed data of new or changed files is downloaded
                 try:

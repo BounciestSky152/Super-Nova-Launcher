@@ -147,7 +147,8 @@ class GamePage(Page):
         self.update_note.setIcon(icons.icon("download", theme.WARNING))
         self.update_note.setCursor(Qt.CursorShape.PointingHandCursor)
         self.update_note.setToolTip("A newer version is out. Click to update (you can keep playing this one).")
-        self.update_note.setStyleSheet(f"QPushButton#UpdateNote {{ color: {theme.WARNING}; background: transparent;"
+        backing = "rgba(255, 255, 255, 0.88)" if theme.light() else "transparent"  # readable on the bright sky
+        self.update_note.setStyleSheet(f"QPushButton#UpdateNote {{ color: {theme.WARNING}; background: {backing};"
                                        f" border: 1px solid {theme.WARNING}; border-radius: 12px; padding: 4px 10px;"
                                        " font-weight: 600; }")
         self.update_note.clicked.connect(self._update_from_note)
@@ -415,13 +416,14 @@ class GamePage(Page):
         head = QHBoxLayout()
         head.addWidget(label("Downloadable content", "SectionTitle"))
         head.addStretch(1)
-        self.dlc_install = button("Install DLC…", "download")
+        self.dlc_install = button("Manage DLC…", "layers")
         self.dlc_install.clicked.connect(lambda: self.ctl.manage_dlc(self._game_for(base.DLC)))
         head.addWidget(self.dlc_install)
         lay.addLayout(head)
         self.dlc_list = QVBoxLayout()
         self.dlc_list.setSpacing(6)
         lay.addLayout(self.dlc_list)
+        lay.addStretch(1)  # rows keep their natural height
         return w
 
     def _make_activity(self) -> QWidget:
@@ -1141,8 +1143,9 @@ class GamePage(Page):
         clear_layout(self.dlc_list)
         dlcs = getattr(details, "dlcs", []) or []
         g = self._game_for(base.DLC)
-        self.dlc_install.setVisible(bool(g and g.installed and any(d.get("owned") and not d.get("installed")
-                                                                     for d in dlcs)))
+        manageable = bool(g and g.installed)
+        self.dlc_install.setVisible(manageable and any(d.get("owned") for d in dlcs))
+        installed = {d["id"] for d in dlcs if d.get("installed")}
         if not dlcs:
             self.dlc_list.addWidget(label("No DLC for this game.", "Faint"))
             return
@@ -1160,6 +1163,12 @@ class GamePage(Page):
             if not d.get("owned") and d.get("url"):
                 b = button("Store", "external")
                 b.clicked.connect(lambda _c=False, u=d["url"]: xdg_open(u))
+                rl.addWidget(b)
+            elif d.get("owned") and manageable:
+                on = d["id"] in installed
+                b = button("Remove" if on else "Install", "trash" if on else "download")
+                want = sorted(installed - {d["id"]}) if on else sorted(installed | {d["id"]})
+                b.clicked.connect(lambda _c=False, w=want: self.ctl.set_dlcs(g, w))
                 rl.addWidget(b)
             self.dlc_list.addWidget(row)
 

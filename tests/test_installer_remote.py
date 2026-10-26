@@ -135,3 +135,53 @@ def test_linux_game_instances(services, monkeypatch, tmp_path):
         assert gog.install_record("123~2") is None and gog.install_record("123")["version"] == "1.0"
     finally:
         srv.shutdown()
+
+
+def test_linux_dlc_remove_and_add(services, monkeypatch, tmp_path):
+    """DLC from offline installers can be removed: its own files go, files the base game also has stay."""
+    from conftest import make_ctx
+    from nebula.core.models import Game
+
+    gog = services.integrations["gog"]
+    monkeypatch.setattr(gog, "connected", lambda: True)
+    monkeypatch.setattr(gog, "owned_ids", lambda refresh=False: {"123", "999"})
+    base_srv, base_url = serve({"data": installer({"game.bin": b"base", "shared.txt": b"same"})})
+    dlc_srv, dlc_url = serve({"data": installer({"dlc/extra.pak": b"dlc data", "shared.txt": b"same"})})
+    linux = {"os": "linux", "language": "en", "version": "1.0", "total_size": 1}
+    product = {"id": 123, "downloads": {"installers": [dict(linux, id="installer_linux_en",
+                                                            files=[{"downlink": "base", "size": 1}])]},
+               "expanded_dlcs": [{"id": 999, "title": "Extra", "downloads": {"installers": [
+                   dict(linux, id="installer_linux_en", files=[{"downlink": "dlc", "size": 1}])]}}]}
+    monkeypatch.setattr(gog.api, "product", lambda pid, expand=(): product)
+    monkeypatch.setattr(gog.api, "downlink", lambda link: {"downlink": base_url if link == "base" else dlc_url})
+    try:
+        game = gog._offline(Game("gog", "123", "Test Game"), make_ctx(), "linux", base_dir=tmp_path, dlcs=["999"])
+        root = tmp_path / "Test Game"
+        assert (root / "dlc" / "extra.pak").exists() and gog.install_record("123")["dlcs"] == ["999"]
+
+        game = gog.set_dlcs(game, [], make_ctx())
+        assert not (root / "dlc" / "extra.pak").exists()
+        assert (root / "shared.txt").read_bytes() == b"same" and (root / "game.bin").exists()
+        assert gog.install_record("123")["dlcs"] == [] and game.extra["installed_dlcs"] == []
+
+        game = gog.set_dlcs(game, ["999"], make_ctx())
+        assert (root / "dlc" / "extra.pak").read_bytes() == b"dlc data" and gog.install_record("123")["dlcs"] == ["999"]
+    finally:
+        base_srv.shutdown()
+        dlc_srv.shutdown()
+
+
+def test_dlc_dialog_lists_everything(qapp):
+    from types import SimpleNamespace
+
+    from nebula.ui.dialogs.misc import DlcDialog
+
+    dlg = DlcDialog(SimpleNamespace(dlcs=[{"id": "1", "title": "A", "owned": True, "installed": True},
+                                          {"id": "2", "title": "B", "owned": True, "installed": False},
+                                          {"id": "3", "title": "C", "owned": False, "installed": False}]))
+    assert dlg.list.count() == 3 and dlg.installed == {"1"} and dlg.wanted() == ["1"]
+    from PySide6.QtCore import Qt
+
+    dlg.list.item(0).setCheckState(Qt.CheckState.Unchecked)  # remove A, add B
+    dlg.list.item(1).setCheckState(Qt.CheckState.Checked)
+    assert dlg.wanted() == ["2"]

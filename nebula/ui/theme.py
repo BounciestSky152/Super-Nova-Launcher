@@ -17,7 +17,7 @@ PALETTES = {
     },
     "light": {  # text colours keep >= 4.5:1 on the frosted glass; the bright colours live in the gradients below
         "BG": "#fbf6ff", "SIDEBAR": "#f4ecff", "SURFACE": "#ffffff", "SURFACE2": "#f7f0ff", "SURFACE3": "#ebdffa",
-        "BORDER": "#e2d3f5", "TEXT": "#1e1233", "TEXT_DIM": "#54476e", "TEXT_FAINT": "#6f6390",
+        "BORDER": "#e2d3f5", "TEXT": "#1e1233", "TEXT_DIM": "#3d3256", "TEXT_FAINT": "#594d75",
         "ACCENT": "#db1a76", "ACCENT_HOVER": "#c2127a", "ACCENT_PRESSED": "#b00f63", "ACCENT_SOFT": "#ffe3f1",
         "SUCCESS": "#0c8346", "WARNING": "#c05600", "DANGER": "#d42a3a", "INFO": "#0b78b8",
         "GLASS": "rgba(255, 255, 255, 0.72)", "GLASS_DARK": "rgba(255, 251, 255, 0.84)",
@@ -614,6 +614,19 @@ QCheckBox::indicator:checked, QRadioButton::indicator:checked {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, {nova});
     border-color: {ACCENT};
 }}
+QAbstractItemView::indicator {{  /* tick boxes in lists (Manage DLC...): the platform's are black on light */
+    width: 16px;
+    height: 16px;
+    border: 1px solid {TEXT_FAINT};
+    background: {SURFACE};
+    border-radius: 4px;
+}}
+QAbstractItemView::indicator:hover {{ border-color: {ACCENT}; }}
+QAbstractItemView::indicator:checked {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, {nova});
+    border-color: {ACCENT};
+}}
+QAbstractItemView::item:disabled {{ color: {TEXT_FAINT}; }}
 QSlider::sub-page:horizontal {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, {spectrum}); }}
 QSlider::handle:horizontal {{ background: white; border: 3px solid {ACCENT}; width: 8px; }}
 QProgressBar::chunk {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, {spectrum}); }}
@@ -666,8 +679,10 @@ def font(role: str, point_size: float = 10) -> QFont:
 def set_fonts(app: QApplication, ui: str = "", display: str = "", sidebar: str = "", mode: str | None = None) -> None:
     global MODE
     MODE = mode or MODE
+    old = PALETTE
     if use_palette("light" if MODE == "supernova" else "dark"):
         _qt_palette(app)
+        restyle(app, old, PALETTE)
     FONTS.update(ui=ui or "", display=display or "", sidebar=sidebar or "")
     load_fonts()
     size = _base_font.pointSizeF() if _base_font is not None else 10
@@ -680,6 +695,27 @@ def set_fonts(app: QApplication, ui: str = "", display: str = "", sidebar: str =
     if FONTS["sidebar"] and not classic():
         rules.append(f'QPushButton#SidebarButton QLabel {{ font-family: "{FONTS["sidebar"]}"; font-size: 9pt; }}')
     app.setStyleSheet(QSS + "\n".join(rules))
+
+
+def prepare(app: QApplication, mode: str) -> None:
+    """Pick the palette for ``mode`` before the window is built: pages bake some colours into their widgets."""
+    if use_palette("light" if mode == "supernova" else "dark"):
+        _qt_palette(app)
+
+
+def restyle(app: QApplication, old: str, new: str) -> None:
+    """Carry a palette switch into the colours widgets baked into their own style sheets, so switching theme
+    needs no restart."""
+    import re
+
+    swap = {v: PALETTES[new][k] for k, v in PALETTES[old].items() if v != PALETTES[new][k]}
+    if not swap:
+        return
+    pattern = re.compile("|".join(re.escape(v) for v in sorted(swap, key=len, reverse=True)))
+    for w in app.allWidgets():
+        ss = w.styleSheet()
+        if ss and pattern.search(ss):
+            w.setStyleSheet(pattern.sub(lambda m: swap[m.group(0)], ss))
 
 
 def _qt_palette(app: QApplication) -> None:
