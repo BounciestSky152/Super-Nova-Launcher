@@ -107,7 +107,7 @@ class Prompts(QWidget):
         super().__init__()
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        self.hint = label("F11  Exit Big Picture", "Faint")
+        self.hint = label("F12  Exit Big Picture", "Faint")
         lay.addWidget(self.hint)
         lay.addStretch(1)
         self.items = list(items)
@@ -391,7 +391,7 @@ class HandheldPage(Page):
             self.avatar.set_avatar(gog.avatar_url(), name, "#5fb85f")
         if not everything:
             self.title.setText("No games yet")
-            self.sub.setText("Sign in with GOG, or press F11 and add games in the desktop view.")
+            self.sub.setText("Sign in with GOG, or press F12 and add games in the desktop view.")
         QTimer.singleShot(0, lambda: self._set_tab(self.tabs.currentIndex()))
 
     def _views(self) -> list:

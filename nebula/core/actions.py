@@ -34,7 +34,7 @@ class Actions:
         return self.s.bus
 
     def _job(self, game: Game, kind: str, title: str, fn, done_msg: str = "", request: InstallRequest | None = None,
-             verb: str = "", verb_done: str = ""):
+             verb: str = "", verb_done: str = "", on_cancel=None):
         integ = self.s.integration(game.source)
         work = copy.deepcopy(game)
 
@@ -59,7 +59,7 @@ class Actions:
             title=game.title, kind=kind, uid=game.uid,
             func=lambda ctx: fn(integ, work, ctx),
             can_pause=game.source in ("gog",) and kind != "uninstall",
-            on_success=ok, on_failure=fail, verb=verb, verb_done=verb_done,
+            on_success=ok, on_failure=fail, verb=verb, verb_done=verb_done, on_cancel=on_cancel,
         )
 
     def _poll_source(self, source: str) -> None:
@@ -80,7 +80,7 @@ class Actions:
             return "Wait for the current download for this game to finish."
         return ""
 
-    def update(self, game: Game, version: str = "", change: str = "", label: str = ""):
+    def update(self, game: Game, version: str = "", change: str = "", label: str = "", auto: bool = False):
         """Update, roll back or switch channel. ``version`` as in Integration.update; ``change`` is a CHANGES key
         and ``label`` the target shown in the queue ("1.0" -> "Rolling back to 1.0"). None when the game is busy."""
         reason = self.busy_reason(game)
@@ -91,9 +91,26 @@ class Actions:
         prefix, ing, ed, default_done = CHANGES[change]
         verb = f"{ing} to {label}" if label else ing
         done = f"{ed} to {label}" if label else default_done
+        if not auto:
+            self.s.db.update_config(game.uid, update_declined=None)  # asked for: automatic updates may resume
         return self._job(game, "update", f"{prefix} {game.title}",
                          lambda integ, g, ctx: integ.update(g, ctx, version),
-                         done, verb=verb, verb_done=done)
+                         done, verb=verb, verb_done=done,
+                         on_cancel=lambda: self.s.db.update_config(game.uid, update_declined=self._newest(game)))
+
+    def _newest(self, game: Game) -> str:
+        """The newest version on offer for ``game`` as far as is known, without the network ("?" = unknown)."""
+        try:
+            info = self.s.integration(game.source).version_info(game, fetch=False)
+        except Exception:  # noqa: BLE001
+            info = None
+        latest = info.latest if info is not None else None
+        return (latest.id or latest.version) if latest is not None and (latest.id or latest.version) else "?"
+
+    def declined(self, game: Game) -> bool:
+        """The user cancelled the update to the version now on offer: don't start it again by itself."""
+        mark = self.s.db.get_config(game.uid).get("update_declined")
+        return bool(mark) and mark == self._newest(game)
 
     def add_instance(self, game: Game, version: str = "", label: str = ""):
         """Install another instance of ``game`` next to it, at ``version`` ("" = the newest), leaving ``game``
@@ -215,9 +232,9 @@ class Actions:
                         continue
                     if self.busy_reason(g):
                         continue
-                    if self.s.db.get_config(uid).get("auto_update", True) is False:
-                        continue
-                    self.update(g)
+                    if self.s.db.get_config(uid).get("auto_update", True) is False or self.declined(g):
+                        continue  # automatic updates off for it, or the user cancelled this very update
+                    self.update(g, auto=True)
             if on_done:
                 on_done(found)
 

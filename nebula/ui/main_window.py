@@ -262,7 +262,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+4"), self, activated=lambda: self.navigate("store"))
         QShortcut(QKeySequence("Ctrl+5"), self, activated=lambda: self.navigate("downloads"))
         QShortcut(QKeySequence("Ctrl+Q"), self, activated=self.quit_app)
-        QShortcut(QKeySequence("F11"), self, activated=lambda: self.s.settings.set(
+        QShortcut(QKeySequence("F12"), self, activated=lambda: self.s.settings.set(
             "handheld.mode", "off" if theme.HANDHELD else "on"))  # leave (or enter) handheld mode
 
     # ------------------------------------------------------ notifications

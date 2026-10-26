@@ -73,6 +73,7 @@ class Job:
     speed_history: deque = field(default_factory=lambda: deque(maxlen=120))
     on_success: Callable[[Any], Any] | None = None
     on_failure: Callable[[str], Any] | None = None
+    on_cancel: Callable[[], Any] | None = None  # the user cancelled it (GUI thread)
     _cancel: threading.Event = field(default_factory=threading.Event)
     _pause: threading.Event = field(default_factory=threading.Event)
     _net: int = 0
@@ -185,9 +186,11 @@ class JobManager(QObject):
         front: bool = False,
         verb: str = "",
         verb_done: str = "",
+        on_cancel: Callable[[], Any] | None = None,
     ) -> Job:
         job = Job(id=str(next(self._ids)), title=title, kind=kind, uid=uid, func=func, can_pause=can_pause,
-                  verb=verb, verb_done=verb_done, on_success=on_success, on_failure=on_failure)
+                  verb=verb, verb_done=verb_done, on_success=on_success, on_failure=on_failure,
+                  on_cancel=on_cancel)
         with self._lock:
             if front:
                 idx = next((i for i, j in enumerate(self.jobs) if j.state == QUEUED), len(self.jobs))
@@ -246,6 +249,10 @@ class JobManager(QObject):
             job.state = CANCELED
             job.stage = "Canceled"
             job.finished = time.time()
+            if job.on_cancel:
+                job.on_cancel()
+        else:
+            job.stage = "Canceling…"  # the downloads in flight stop within moments
         self.bus.jobs_changed.emit()
         self._schedule()
 
@@ -313,6 +320,8 @@ class JobManager(QObject):
                 job.on_success(job.result)
             elif job.state == FAILED and job.on_failure:
                 job.on_failure(job.error)
+            elif job.state == CANCELED and job.on_cancel:
+                job.on_cancel()
             self.bus.jobs_changed.emit()
             self._schedule()
 

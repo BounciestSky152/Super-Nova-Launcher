@@ -68,6 +68,10 @@ class JobRow(QWidget):
             cancel = icon_button("x", "Cancel")
             cancel.clicked.connect(lambda: s.jobs.cancel(job.id))
             btns.addWidget(cancel)
+            if job._cancel.is_set():  # already cancelled, just finishing: nothing left to press
+                for b in (getattr(self, "pause", None), cancel):
+                    if b is not None:
+                        b.setEnabled(False)
         else:
             if job.uid and s.library.entry_for_uid(job.uid):
                 go = icon_button("forward", "Open game")
@@ -94,7 +98,8 @@ class JobRow(QWidget):
         elif j.state == "canceled":
             self.stage.setText("Canceled")
         else:
-            self.stage.setText(f"{verb} — {j.stage}" if j.state != "queued" else "Queued")
+            self.stage.setText("Canceling…" if j._cancel.is_set()
+                               else f"{verb} — {j.stage}" if j.state != "queued" else "Queued")
         self.bar.setVisible(j.active)
         self.bar.setValue(int(j.progress * 1000))
         parts = []

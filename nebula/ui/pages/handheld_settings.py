@@ -297,7 +297,7 @@ class HandheldSettingsPage(Page):
                                                               ("classic", "Classic")],
                           "Big Picture always uses the dark sky; Super Nova lights up the desktop layout"),
                 ActionRow(self, "Exit Big Picture", "Exit", lambda: st.set("handheld.mode", "off"),
-                          "Back to the desktop layout (F11 does the same)"),
+                          "Back to the desktop layout (F12 does the same)"),
             ]),
             ("Account", [
                 ActionRow(self, "GOG account", lambda: "Sign out" if signed_in() else "Sign in", account,

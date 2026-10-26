@@ -65,7 +65,7 @@ class SettingsPage(Page):
                                 items[0], items[2]))
 
     def set_handheld(self, on: bool) -> None:
-        self.handheld_combo.blockSignals(True)  # F11 switches the mode without this page
+        self.handheld_combo.blockSignals(True)  # F12 switches the mode without this page
         self.handheld_combo.setCurrentIndex(max(0, self.handheld_combo.findData("on" if on else "off")))
         self.handheld_combo.blockSignals(False)
         self.prompts.setVisible(on)
