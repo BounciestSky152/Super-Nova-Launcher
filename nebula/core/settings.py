@@ -77,7 +77,6 @@ DEFAULTS: dict[str, Any] = {
     # Super Nova self-updates (from GitHub)
     "updates.auto_check": True,
     "updates.auto_install": True,
-    "updates.auto_restart": True,
     "updates.interval_minutes": 30,
     "updates.repo": "BounciestSky152/Super-Nova-Launcher",
     "updates.branch": "main",

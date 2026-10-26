@@ -111,9 +111,59 @@ class UiController:
             self.w.toast(f"Installing {game.title}", "Added to the download queue")
 
     def update(self, game) -> None:
-        job = self.s.actions.update(game)
+        self.change_version(game)
+
+    def change_version(self, game, version: str = "", change: str = "", label: str = "") -> None:
+        """Update / roll back / switch channel. An installed game that can have instances first asks whether to
+        change this install (only the files that differ are downloaded) or add the version as a new instance."""
+        if game.installed and self.integ(game).supports(base.INSTANCES):
+            answer = self.ask_instance(game, label)
+            if answer == "instance":
+                if self.s.actions.add_instance(game, version, label):
+                    self.w.toast(game.title, "New instance added to the download queue")
+                return
+            if answer != "update":
+                return
+        if version or change or label:
+            job = self.s.actions.update(game, version=version, change=change, label=label)
+        else:
+            job = self.s.actions.update(game)
         if job:
             self.w.toast(game.title, f"{job.verb} — added to the download queue")
+
+    def ask_instance(self, game, label: str = "") -> str:
+        """"update" (this install), "instance" (a new one next to it) or "" (cancelled)."""
+        box = QMessageBox(self.w)
+        box.setWindowTitle("Change version")
+        box.setText(f"Install {label or 'the newest version'} of {game.title}?")
+        box.setInformativeText("Update this install replaces only the files that changed. A new instance puts "
+                               "this version in its own folder and keeps the one you have.")
+        here = box.addButton("Update this install", QMessageBox.ButtonRole.AcceptRole)
+        new = box.addButton("Add a new instance", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(here)
+        box.exec()
+        return "update" if box.clickedButton() is here else "instance" if box.clickedButton() is new else ""
+
+    def add_instance(self, game) -> None:
+        """Pick a version and install it as another instance next to ``game``."""
+        from nebula.ui.dialogs.versions import ChangeVersionDialog
+
+        dlg = ChangeVersionDialog(self.s, game, None, self.w)
+        dlg.setWindowTitle(f"Add an instance of {game.title}")
+        if dlg.exec() and dlg.choice:
+            c = dlg.choice
+            if self.s.actions.add_instance(game, c["version"], c["label"]):
+                self.w.toast(game.title, "New instance added to the download queue")
+
+    def copy_name(self, g) -> str:
+        """How a copy is called in menus: the platform, plus the instance and version when it has some."""
+        name = self.integ(g).name
+        if g.instance:
+            name += f" · {g.extra.get('instance_label') or 'Instance ' + g.instance}"
+        if g.installed and g.version and g.version != g.extra.get("instance_label"):
+            name += f" ({g.version})"
+        return name
 
     def repair(self, game) -> None:
         self.s.actions.repair(game)
@@ -131,9 +181,7 @@ class UiController:
         dlg = ChangeVersionDialog(self.s, game, info, self.w)
         if dlg.exec() and dlg.choice:
             c = dlg.choice
-            job = self.s.actions.update(game, version=c["version"], change=c["change"], label=c["label"])
-            if job:
-                self.w.toast(game.title, f"{job.verb} — added to the download queue")
+            self.change_version(game, c["version"], c["change"], c["label"])
 
     def uninstall(self, game) -> None:
         from nebula.ui.dialogs.misc import UninstallDialog
@@ -316,15 +364,14 @@ class UiController:
         if state == "update" and integ.supports(base.UPDATE):
             m.addAction(icons.icon("download"), "Update now", lambda: self.update(game))
         if len(e.games) > 1:
-            sub = m.addMenu("Platform")
+            sub = m.addMenu("Copies")
             for g in e.games:
-                gi = self.integ(g)
-                act = sub.addAction(f"{gi.name}" + ("  (installed)" if g.installed else ""),
+                act = sub.addAction(self.copy_name(g) + ("  (installed)" if g.installed else ""),
                                     lambda g=g: self.s.library.set_user(key, preferred_uid=g.uid))
                 act.setCheckable(True)
                 act.setChecked(g is e.primary)
                 if g.installed and g is not game:
-                    sub.addAction(f"Play on {gi.name}", lambda g=g: self.play(e, g.uid))
+                    sub.addAction(f"Play {self.copy_name(g)}", lambda g=g: self.play(e, g.uid))
         m.addSeparator()
         if game.installed:
             manage = m.addMenu(icons.icon("wrench"), "Manage installation")

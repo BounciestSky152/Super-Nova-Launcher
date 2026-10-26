@@ -153,10 +153,14 @@ def test_big_picture_settings(qapp, services, errors):
     for other in QApplication.topLevelWidgets():  # windows and dialogs left over by earlier tests take the keys
         if other is not w and other.isVisible():
             other.hide()
+    w.raise_()
     w.windowHandle().requestActivate()
+    QApplication.setActiveWindow(w)
     end = time.time() + 3
     while QApplication.activeWindow() is not w and time.time() < end:
         pump(qapp, 0.05)
+    if QApplication.activeWindow() is not w:  # keyboard focus needs an active window
+        pytest.skip("the offscreen platform did not activate the window after the earlier UI tests")
     page = w.pages["handheld_settings"]
 
     def press(key, seconds=0.12):

@@ -95,6 +95,17 @@ class Actions:
                          lambda integ, g, ctx: integ.update(g, ctx, version),
                          done, verb=verb, verb_done=done)
 
+    def add_instance(self, game: Game, version: str = "", label: str = ""):
+        """Install another instance of ``game`` next to it, at ``version`` ("" = the newest), leaving ``game``
+        as it is. ``label`` names the instance ("1.2", "Beta"...)."""
+        integ = self.s.integration(game.source)
+        new = integ.new_instance(game)
+        source = integ.rkey(game)
+        name = label or f"Instance {new.instance}"
+        return self._job(new, "install", f"Install {game.title} ({name})",
+                         lambda integ, g, ctx: integ.install_instance(g, ctx, source, version, name),
+                         f"{name} installed next to your other copy", verb=f"Installing {name}")
+
     def set_version_pin(self, game: Game, pinned: bool) -> None:
         """Turn "stay on this version" on or off and recompute the update flag without touching the network."""
         self.s.db.update_config(game.uid, pin_version=bool(pinned))
@@ -155,6 +166,8 @@ class Actions:
                         "Uninstalled" if game.source not in HANDOFF_SOURCES else "")
         if game.source == "local":
             job.on_success = lambda _r: self.s.library.refresh(["local"], enrich=False)
+        elif game.instance:  # an extra instance is gone for good, not "not installed"
+            job.on_success = lambda _r: self.s.library.remove_game(game.uid)
         return job
 
     def check_updates(self, auto_update: bool | None = None, on_done=None) -> None:

@@ -81,7 +81,7 @@ class GogIntegration(Integration):
     capabilities = frozenset({
         base.LIBRARY, base.INSTALL, base.UNINSTALL, base.LAUNCH, base.UPDATE, base.REPAIR, base.VERSIONS,
         base.DLC, base.ACHIEVEMENTS, base.FRIENDS, base.PLAYTIME, base.CLOUD_SAVES, base.STORE, base.IMPORT,
-        base.WISHLIST,
+        base.WISHLIST, base.INSTANCES,
     })
     login_url = LOGIN_URL
     success_prefix = SUCCESS_PREFIX
@@ -162,6 +162,11 @@ class GogIntegration(Integration):
     def installs(self) -> dict:
         return self.db.kv_get(INSTALLS_KEY, {}) or {}
 
+    @staticmethod
+    def rkey(game: Game) -> str:
+        """Where an install is recorded: the product id, plus "~n" for extra instances."""
+        return game.source_id + (f"~{game.instance}" if game.instance else "")
+
     def install_record(self, product_id: str) -> dict | None:
         return self.installs().get(str(product_id))
 
@@ -219,6 +224,8 @@ class GogIntegration(Integration):
             game.extra["install_method"] = rec.get("method", "")
             game.extra["language"] = rec.get("language", "")
             game.extra["installed_dlcs"] = rec.get("dlcs", [])
+            if game.instance:
+                game.extra["instance_label"] = rec.get("instance_name") or f"Instance {game.instance}"
         else:
             game.installed = False
             game.install_path = ""
@@ -241,7 +248,7 @@ class GogIntegration(Integration):
         self._import_heroic()
         products = self.api.library()
         self.owned_ids(refresh=True)
-        prev = {g.source_id: g for g in self.services.library.games_for_source(self.id)}
+        prev = {g.uid.partition(":")[2]: g for g in self.services.library.games_for_source(self.id)}
         records = self.installs()
         games = []
         for p in products:
@@ -266,11 +273,60 @@ class GogIntegration(Integration):
         # installed games that are not (or no longer) in the account library
         known = {g.source_id for g in games}
         for pid, rec in records.items():
-            if pid not in known and Path(rec.get("install_path", "")).is_dir():
+            if "~" not in pid and pid not in known and Path(rec.get("install_path", "")).is_dir():
                 g = prev.get(pid) or Game(self.id, pid, rec.get("title", pid), added_at=time.time())
                 self._apply_record(g, rec)
                 games.append(g)
+        by_pid = {g.source_id: g for g in games}
+        for key, rec in records.items():  # extra instances, next to their game
+            pid, _, inst = key.partition("~")
+            if inst and Path(rec.get("install_path", "")).is_dir():
+                g = prev.get(key) or self.new_instance(by_pid.get(pid) or Game(self.id, pid, rec.get("title", pid)),
+                                                       inst)
+                self._apply_record(g, rec)
+                games.append(g)
         return games
+
+    def new_instance(self, game: Game, instance: str = "") -> Game:
+        """A copy of ``game`` as another instance (the next free number unless given); not installed yet."""
+        import copy
+
+        if not instance:
+            taken = {k.partition("~")[2] for k in self.installs() if k.partition("~")[0] == game.source_id}
+            instance = str(next(n for n in range(2, 1000) if str(n) not in taken))
+        g = copy.deepcopy(game)
+        g.instance, g.added_at = instance, time.time()
+        g.extra["merge_key"] = game.key  # stays with its game in the library
+        self._apply_record(g, None)
+        return g
+
+    def install_instance(self, game: Game, ctx: JobContext, source: str, version: str = "", label: str = "") -> Game:
+        """Install ``game`` (from new_instance) next to the install recorded under ``source``, at ``version``
+        (a build id or a channel target; "" = the newest), in its own folder."""
+        src = self.install_record(source) or {}
+        if not src:
+            raise RuntimeError("The install this instance should be based on is gone")
+        here = Path(src["install_path"])
+        folder = f"{here.name} ({label or 'instance ' + game.instance})"
+        dlcs = src.get("dlcs_wanted", src.get("dlcs", []))
+        if src.get("method", "").endswith("gen2"):
+            branch = version[len(base.BRANCH_TARGET):] if version.startswith(base.BRANCH_TARGET) else None
+            result = self._gen2(game, ctx, "install", base_dir=here.parent, language=src.get("language", ""),
+                                dlcs=dlcs, build_id="" if branch is not None else version, to_branch=branch or None,
+                                switch_branch=branch is not None, folder=folder)
+        else:
+            if version:
+                raise base.NotSupported("GOG only offers its newest installer for this game, so a new instance "
+                                        "gets the newest version.")
+            result = self._offline(game, ctx, src.get("platform", "linux"), base_dir=here.parent,
+                                   language=src.get("language", ""), dlcs=src.get("dlcs", []), folder=folder)
+        with self._rec_lock:
+            data = self.installs()
+            if self.rkey(game) in data:
+                data[self.rkey(game)]["instance_name"] = label or f"Instance {game.instance}"
+                self.db.kv_set(INSTALLS_KEY, data)
+        self._apply_record(result, self.install_record(self.rkey(game)))
+        return result
 
     def enrich(self, games: list[Game]) -> list[Game]:
         todo = [g for g in games if not g.extra.get("gamesdb") or time.time() - g.extra["gamesdb"] > 30 * 86400]
@@ -322,7 +378,7 @@ class GogIntegration(Integration):
             if info is None or info.error:
                 continue  # keep the previous flag: a failed check says nothing about updates
             # the check may have healed the record's version (imports)
-            g.version = self._installed_version(self.install_record(g.source_id) or {}) or g.version
+            g.version = self._installed_version(self.install_record(self.rkey(g)) or {}) or g.version
             pinned = bool(self.db.get_config(g.uid).get("pin_version"))  # may have changed during the fetch
             g.update_available = info.update_available and not pinned  # pinned games are still checked
             if g.update_available:
@@ -489,7 +545,7 @@ class GogIntegration(Integration):
         cfg = self.db.get_config(game.uid)
         if cfg.get("runner") == "native":
             return
-        rec = self.install_record(game.source_id) or {}
+        rec = self.install_record(self.rkey(game)) or {}
         done = set(cfg.get("redists_done", []))
         pending = [r for r in rec.get("redists", []) if r["id"] not in done]
         for r in pending:
@@ -622,7 +678,7 @@ class GogIntegration(Integration):
         return self._offline(game, ctx, platform, base_dir=base_dir, language=request.language, dlcs=request.dlcs)
 
     def update(self, game: Game, ctx: JobContext, version: str = "") -> Game:
-        rec = self.install_record(game.source_id) or {}
+        rec = self.install_record(self.rkey(game)) or {}
         if rec.get("method", "") in ("gen2", "imported-gen2"):
             if version.startswith(base.BRANCH_TARGET):
                 return self._gen2(game, ctx, "update", to_branch=version[len(base.BRANCH_TARGET):] or None,
@@ -635,14 +691,14 @@ class GogIntegration(Integration):
                              dlcs=rec.get("dlcs", []), existing=Path(game.install_path))
 
     def repair(self, game: Game, ctx: JobContext) -> Game:
-        rec = self.install_record(game.source_id) or {}
+        rec = self.install_record(self.rkey(game)) or {}
         if rec.get("method", "").endswith("gen2"):
             return self._gen2(game, ctx, "repair", build_id=str(rec.get("build_id", "")))
         return self._offline(game, ctx, rec.get("platform", "linux"), language=rec.get("language", ""),
                              dlcs=rec.get("dlcs", []), existing=Path(game.install_path))
 
     def install_dlcs(self, game: Game, dlc_ids: list[str], ctx: JobContext) -> Game:
-        rec = self.install_record(game.source_id) or {}
+        rec = self.install_record(self.rkey(game)) or {}
         dlcs = sorted(set(rec.get("dlcs_wanted", [])) | set(rec.get("dlcs", [])) | set(dlc_ids))
         if rec.get("method", "").endswith("gen2"):
             return self._gen2(game, ctx, "update", build_id=str(rec.get("build_id", "")), dlcs=dlcs, same_build=True)
@@ -651,10 +707,10 @@ class GogIntegration(Integration):
 
     def _gen2(self, game: Game, ctx: JobContext, mode: str, base_dir: Path | None = None, language: str = "",
               dlcs: list | None = None, build_id: str = "", same_build: bool = False, to_branch: str | None = None,
-              switch_branch: bool = False) -> Game:
+              switch_branch: bool = False, folder: str = "") -> Game:
         """Install / update / repair from Galaxy builds. Updates stay on the recorded channel unless an explicit
         build (``build_id``) or channel (``switch_branch`` + ``to_branch``) is asked for."""
-        rec = self.install_record(game.source_id) or {}
+        rec = self.install_record(self.rkey(game)) or {}
         gen2 = content.Gen2(self.api, game.source_id)
         ctx.stage("Fetching build information")
         # always a fresh list (this also refreshes what the game page shows)
@@ -687,12 +743,12 @@ class GogIntegration(Integration):
         wanted = list(dlcs) if dlcs is not None else list(rec.get("dlcs_wanted", rec.get("dlcs", [])))
         dlc_list = [d for d in wanted if d in product_ids and d in owned]
         if mode == "install":
-            install_dir = Path(base_dir) / sanitize_dirname(info.install_directory or game.title)
+            install_dir = Path(base_dir) / sanitize_dirname(folder or info.install_directory or game.title)
         else:
             install_dir = Path(game.install_path)
         ctx.stage("Preparing file list")
         fs = gen2.file_set(info, language, dlc_list, ctx=ctx)
-        old_record = content.load_manifest(game.source_id)
+        old_record = content.load_manifest(self.rkey(game))
         if old_record is None and mode != "install" and rec.get("build_id"):
             # imported install: rebuild the manifest from the installed build
             old_build = gen2.find(builds, str(rec.get("build_id")))
@@ -736,7 +792,7 @@ class GogIntegration(Integration):
                 redists = content.install_dependencies(self.api, ctx, self.dl_session, info.dependencies, install_dir)
             except Exception as exc:  # noqa: BLE001
                 log.warning("Dependencies could not be downloaded: %s", exc)
-        content.save_manifest(game.source_id, content.build_manifest_record(
+        content.save_manifest(self.rkey(game), content.build_manifest_record(
             info, fs, "windows", language, dlc_list, str(install_dir), redists))
         resume_path.unlink(missing_ok=True)
         size = sum(f.size for f in fs.files)
@@ -756,7 +812,7 @@ class GogIntegration(Integration):
             "latest": self._summary(self._build_ref(newest, newest=True), info.build_id, status, status == "behind",
                                     newer),
         }
-        self._set_record(game.source_id, new_rec)
+        self._set_record(self.rkey(game), new_rec)
         if changed:
             # pin rule: an explicitly chosen build that isn't the newest on its channel stops update offers;
             # anything else (plain update, newest build, channel switch) lifts the pin
@@ -770,7 +826,7 @@ class GogIntegration(Integration):
 
     def _offline(self, game: Game, ctx: JobContext, platform: str, base_dir: Path | None = None,
                  language: str = "", dlcs: list | None = None, existing: Path | None = None,
-                 dlc_only: bool = False, all_dlcs: list | None = None) -> Game:
+                 dlc_only: bool = False, all_dlcs: list | None = None, folder: str = "") -> Game:
         ctx.stage("Fetching installer information")
         product = self.api.product(game.source_id, expand=("downloads", "expanded_dlcs"))
         language = language or self.settings.get("general.language") or "en"
@@ -778,7 +834,8 @@ class GogIntegration(Integration):
         inst = offline.pick_installer(installers, language)
         if inst is None:
             raise RuntimeError(f"No {platform} installer available")
-        install_dir = existing or Path(base_dir or self.settings.get("library.install_dir")) / sanitize_dirname(game.title)
+        install_dir = existing or Path(base_dir or self.settings.get("library.install_dir")) / sanitize_dirname(
+            folder or game.title)
         install_dir.mkdir(parents=True, exist_ok=True)
         (install_dir / content.MARKER_FILE).write_text(json.dumps({"source": "gog", "id": game.source_id}))
         cache = offline.cache_dir_for(game.source_id)
@@ -790,8 +847,24 @@ class GogIntegration(Integration):
                 di = offline.pick_installer(offline.installers_for(dlc, platform), inst.get("language", "en"))
                 if di:
                     packages.append((dlc.get("title", did), di))
+        saved = (content.load_manifest(f"{self.rkey(game)}-installer") or {}) if existing else {}
+        lists = dict(saved.get("packages", {}))
         for title, package in packages:
             ctx.check()
+            pkg = str(package.get("id") or title)
+            if platform == "linux" and package.get("files"):
+                # straight from the server: only the compressed data of new or changed files is downloaded
+                try:
+                    real = self.api.downlink(package["files"][0]["downlink"]).get("downlink")
+                    if real:
+                        lists[pkg] = offline.install_linux_remote(self.dl_session, ctx, real, install_dir,
+                                                                  lists.get(pkg))
+                        continue
+                except IOError as exc:
+                    if ctx.cancelled:
+                        raise
+                    log.warning("Partial download of %s not possible, downloading the whole installer: %s",
+                                title, exc)
             files = offline.download_installer(self.api, self.dl_session, ctx, package, cache)
             ctx.stage(f"Installing {title}")
             if platform == "linux":
@@ -803,7 +876,9 @@ class GogIntegration(Integration):
                 for f in files:
                     f.unlink(missing_ok=True)
         ctx.stage("Finishing")
-        rec = self.install_record(game.source_id) or {}
+        if lists:
+            content.save_manifest(f"{self.rkey(game)}-installer", {"packages": lists})
+        rec = self.install_record(self.rkey(game)) or {}
         version = str(inst.get("version") or "")
         new_rec = {
             "install_path": str(install_dir), "platform": platform,
@@ -819,7 +894,7 @@ class GogIntegration(Integration):
                 base.BuildRef(version=version, size=int(inst.get("total_size") or 0), newest=True), version,
                 "up_to_date", False),
         }
-        self._set_record(game.source_id, new_rec)
+        self._set_record(self.rkey(game), new_rec)
         if not dlc_only and self.db.get_config(game.uid).get("pin_version"):
             self.db.update_config(game.uid, pin_version=False)  # the newest installer is never a pinned choice
         self.invalidate_versions(game.source_id)  # the cached installer list may predate this install
@@ -838,8 +913,9 @@ class GogIntegration(Integration):
                 if not infos and not (path / "start.sh").exists():
                     raise RuntimeError(f"{path} does not look like a GOG game folder; refusing to delete it")
             safe_rmtree(path)
-        content.delete_manifest(game.source_id)
-        self._set_record(game.source_id, None)
+        content.delete_manifest(self.rkey(game))
+        content.delete_manifest(f"{self.rkey(game)}-installer")
+        self._set_record(self.rkey(game), None)
         self.invalidate_versions(game.source_id)
         if self.db.get_config(game.uid).get("pin_version"):
             self.db.update_config(game.uid, pin_version=False)
@@ -940,7 +1016,7 @@ class GogIntegration(Integration):
         if not game.installed:
             return self._available_info(game, fetch, refresh)
         pid = game.source_id
-        rec = self.install_record(pid)
+        rec = self.install_record(self.rkey(game))
         if not rec:
             return None
         cfg = self.db.get_config(game.uid)
@@ -986,7 +1062,7 @@ class GogIntegration(Integration):
             self._apply_saved(info, rec.get("latest"))
         elif not info.stale:
             try:
-                self._save_summary(pid, rec, info, match)
+                self._save_summary(self.rkey(game), rec, info, match)
             except Exception as exc:  # noqa: BLE001
                 log.debug("could not save the version summary for %s: %s", game.title, exc)
         return info
@@ -1197,7 +1273,7 @@ class GogIntegration(Integration):
         except Exception:  # noqa: BLE001
             items = None
         if not items:
-            manifest = content.load_manifest(game.source_id) or {}
+            manifest = content.load_manifest(self.rkey(game)) or content.load_manifest(game.source_id) or {}
             cid, secret = manifest.get("client_id"), manifest.get("client_secret")
             if cid and secret:
                 try:
@@ -1257,7 +1333,7 @@ class GogIntegration(Integration):
             return CloudSyncResult("unsupported", "Sign in to GOG to use cloud saves")
         if not game.installed or game.platform != "windows":
             return CloudSyncResult("unsupported", "GOG cloud saves are available for Windows builds (run via Proton)")
-        manifest = content.load_manifest(game.source_id) or {}
+        manifest = content.load_manifest(self.rkey(game)) or content.load_manifest(game.source_id) or {}
         cid, secret = manifest.get("client_id"), manifest.get("client_secret")
         if not (cid and secret):
             info = self._info_file(game) or {}
@@ -1279,7 +1355,7 @@ class GogIntegration(Integration):
             return CloudSyncResult("error", f"Cloud sync failed: {exc}")
 
     def cloud_locations(self, game: Game) -> list[tuple[str, str]]:
-        manifest = content.load_manifest(game.source_id) or {}
+        manifest = content.load_manifest(self.rkey(game)) or content.load_manifest(game.source_id) or {}
         cid = manifest.get("client_id") or (self._info_file(game) or {}).get("clientId")
         if not cid:
             return []

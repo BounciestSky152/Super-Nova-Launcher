@@ -32,6 +32,7 @@ CLOUD_SAVES = "cloud_saves"
 STORE = "store"
 IMPORT = "import"
 WISHLIST = "wishlist"
+INSTANCES = "instances"  # several installs of one game side by side
 
 
 class NotSupported(Exception):

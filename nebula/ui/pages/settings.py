@@ -251,7 +251,6 @@ class SettingsPage(Page):
         f2.addRow(self.check("updates.auto_check", "Check for new versions"))
         f2.addRow("Check every", self.spin("updates.interval_minutes", 5, 1440, " min"))
         f2.addRow(self.check("updates.auto_install", "Install updates automatically"))
-        f2.addRow(self.check("updates.auto_restart", "Restart after updating (only when no game is running)"))
         repo = QLineEdit(self.st.get("updates.repo"))
         repo.editingFinished.connect(lambda: self.st.set("updates.repo", repo.text().strip()))
         f2.addRow("GitHub repository", repo)

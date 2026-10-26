@@ -324,6 +324,24 @@ class GamePage(Page):
         vc.pin_toggled.connect(lambda on: self._version_pin(on))
         vc.auto_toggled.connect(lambda on: self._version_auto(on))
         right.addWidget(vc)
+        # every installed copy of the game (other instances on other versions), each playable and manageable
+        self.installs_card = card()
+        icl = QVBoxLayout(self.installs_card)
+        icl.setContentsMargins(16, 14, 16, 14)
+        icl.setSpacing(8)
+        ih = QHBoxLayout()
+        ih.addWidget(label("Installs", "SectionTitle"))
+        ih.addStretch(1)
+        add = button("Add instance…", "plus")
+        add.setToolTip("Install another version next to this one, in its own folder")
+        add.clicked.connect(lambda: self._vgame() and self.ctl.add_instance(self._vgame()))
+        ih.addWidget(add)
+        icl.addLayout(ih)
+        self.installs_rows = QVBoxLayout()
+        self.installs_rows.setSpacing(10)
+        icl.addLayout(self.installs_rows)
+        self.installs_card.hide()
+        right.addWidget(self.installs_card)
         tags_card = card()
         tcl = QVBoxLayout(tags_card)
         tcl.setContentsMargins(16, 14, 16, 14)
@@ -721,7 +739,48 @@ class GamePage(Page):
             return None
         return info
 
+    def _render_installs(self) -> None:
+        e = self.s.library.entry(self.key) or self.entry
+        copies = [g for g in (e.games if e else []) if g.installed
+                  and self.s.integration(g.source).supports(base.INSTANCES)]
+        self.installs_card.setVisible(bool(copies))
+        clear_layout(self.installs_rows)
+        for g in copies:
+            row = QHBoxLayout()
+            col = QVBoxLayout()
+            col.setSpacing(1)
+            name = label(self.ctl.copy_name(g) + ("  ·  default" if g is e.primary and len(copies) > 1 else ""))
+            name.setStyleSheet("font-weight: 600;")
+            where = label("", "Faint")
+            text = g.install_path + (f"  ·  {human_size(g.install_size)}" if g.install_size else "")
+            where.setText(where.fontMetrics().elidedText(text, Qt.TextElideMode.ElideMiddle, 250))
+            where.setToolTip(g.install_path)
+            col.addWidget(name)
+            col.addWidget(where)
+            row.addLayout(col, 1)
+            play = button("Play", "play")
+            play.clicked.connect(lambda _c=False, g=g: self.ctl.play(e, g.uid))
+            more = icon_button("more", "Manage this install")
+            more.clicked.connect(lambda _c=False, g=g, b=more: self._install_menu(g, b))
+            row.addWidget(play)
+            row.addWidget(more)
+            self.installs_rows.addLayout(row)
+
+    def _install_menu(self, g, anchor) -> None:
+        e = self.s.library.entry(self.key) or self.entry
+        m = QMenu(self)
+        if g is not e.primary:
+            m.addAction(icons.icon("star"), "Make default", lambda: self.s.library.set_user(e.key, preferred_uid=g.uid))
+        if g.update_available:
+            m.addAction(icons.icon("download"), "Update", lambda: self.ctl.change_version(g))
+        m.addAction(icons.icon("refresh"), "Change version…", lambda: self.ctl.versions(g))
+        m.addAction(icons.icon("folder"), "Open folder", lambda: self.s.actions.open_folder(g))
+        m.addSeparator()
+        m.addAction(icons.icon("trash"), "Uninstall…", lambda: self.ctl.uninstall(g))
+        m.exec(anchor.mapToGlobal(anchor.rect().bottomLeft()))
+
     def _render_version(self) -> None:
+        self._render_installs()
         g = self._vgame()
         info = self._version_info(g) if g else None
         if info is None:
@@ -807,9 +866,7 @@ class GamePage(Page):
         if v.update_change == "install":
             self.ctl.install(g)
             return
-        job = self.s.actions.update(g, version=v.update_version, change=v.update_change, label=v.update_label)
-        if job:
-            self.win.toast(g.title, f"{job.verb} — added to the download queue")
+        self.ctl.change_version(g, v.update_version, v.update_change, v.update_label)
 
     def _version_change(self) -> None:
         g = self._vgame()
@@ -906,7 +963,7 @@ class GamePage(Page):
             row.addWidget(b)
             col = QVBoxLayout()
             col.setSpacing(0)
-            col.addWidget(label(integ.name))
+            col.addWidget(label(self.ctl.copy_name(game) if game.instance else integ.name))
             if game.installed:
                 sub = {"windows": "Windows build via Proton", "linux": "Native Linux build"}.get(game.platform, "Installed")
                 if game.source in ("steam", "lutris"):

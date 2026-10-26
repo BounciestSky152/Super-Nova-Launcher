@@ -360,7 +360,6 @@ class HandheldSettingsPage(Page):
                 ChoiceRow(self, "updates.interval_minutes", "Check every",
                           [(m, minutes(m)) for m in (15, 30, 60, 180, 360, 720, 1440)], wrap=False),
                 ToggleRow(self, "updates.auto_install", "Install updates automatically"),
-                ToggleRow(self, "updates.auto_restart", "Restart after updating", "Only when no game is running"),
                 TextRow(self, "updates.repo", "GitHub repository"),
                 TextRow(self, "updates.branch", "Branch", default="main"),
                 TextRow(self, "updates.github_token", "GitHub token", "Only for a private repository",

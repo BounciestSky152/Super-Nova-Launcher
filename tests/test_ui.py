@@ -308,6 +308,7 @@ def test_game_page_version_card(qapp, services, errors, caplog, monkeypatch, tmp
     updates, launches = [], []
     monkeypatch.setattr(services.actions, "update", lambda game, **kw: updates.append((game.uid, kw)))
     monkeypatch.setattr(services.launcher, "launch", lambda uid, task_id="": launches.append(uid))
+    monkeypatch.setattr(w.ctl, "ask_instance", lambda game, label="": "update")  # this install, not a new one
     gp.play.click()
     card.update_btn.click()
     w.ctl.primary_action(key, update=False)
@@ -416,6 +417,7 @@ def test_controller_versions_dispatch_and_busy(qapp, services, errors, monkeypat
     monkeypatch.setattr(services.actions, "update", lambda game, **kw: updates.append((game.uid, kw)) or
                         SimpleNamespace(verb="Rolling back to 1.0"))
     monkeypatch.setattr(services.launcher, "launch", lambda uid, task_id="": launches.append(uid))
+    monkeypatch.setattr(w.ctl, "ask_instance", lambda game, label="": "update")
 
     w.ctl.versions(g)
     assert built == [(g.uid, None)]
@@ -447,6 +449,17 @@ def test_controller_versions_dispatch_and_busy(qapp, services, errors, monkeypat
     assert updates[-1] == (g.uid, {})
     w.ctl.primary_action(services.library.entry_for_uid("steam:7").key)
     assert launches == ["steam:7"] and len(updates) == 2
+
+    # changing the version of an installed copy can add it as a new instance instead
+    added = []
+    monkeypatch.setattr(services.actions, "add_instance", lambda game, version, label: added.append(
+        (game.uid, version, label)) or object())
+    monkeypatch.setattr(w.ctl, "ask_instance", lambda game, label="": "instance")
+    w.ctl.versions(g)
+    assert added == [(g.uid, "b1", "1.0")] and len(updates) == 2
+    monkeypatch.setattr(w.ctl, "ask_instance", lambda game, label="": "")  # cancelled: nothing happens
+    w.ctl.versions(g)
+    assert len(added) == 1 and len(updates) == 2
     assert not errors, errors
 
 

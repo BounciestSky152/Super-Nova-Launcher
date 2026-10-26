@@ -98,7 +98,7 @@ class LibraryManager:
             entries: dict[str, LibraryEntry] = {}
             uid_to_key: dict[str, str] = {}
             for key, games in groups.items():
-                games.sort(key=lambda g: (not g.installed, _src_rank(g.source)))
+                games.sort(key=lambda g: (not g.installed, _src_rank(g.source), int(g.instance or 1)))
                 ud = self.user.get(key) or UserData(key)
                 minutes = 0
                 last = 0.0

@@ -162,10 +162,8 @@ class SelfUpdateService(QObject):
         self._busy = False
         self._set(INSTALLED, f"{result}. Restart Super Nova to use the new version.")
         self.s.db.log_activity("update", f"Super Nova updated ({result})")
-        if self.settings.get("updates.auto_restart"):
-            self.schedule_restart()
-        else:
-            self.s.bus.notify.emit("Super Nova updated", "Restart Super Nova to use the new version")
+        # no automatic restart: the new version starts whenever the user restarts (banner: Restart now)
+        self.s.bus.notify.emit("Super Nova updated", "Restart Super Nova to use the new version")
 
     def _install_failed(self, exc: BaseException) -> None:
         self._busy = False

@@ -85,6 +85,14 @@ Every GOG game has a **Version** card on its page and matching rows in the Info 
 * **Version checks** happen when you open a game page (at most every few minutes) and during the regular update
   check. A failed check never hides an update Super Nova already found. The card shows when GOG was last checked
   and has a button to check again.
+* **Updates only download what changed.** Galaxy builds reuse every unchanged chunk already on disk. Native Linux
+  games are read straight from GOG's installer on the server: only the compressed data of new or changed files is
+  downloaded, files the new version dropped are removed, and the installer itself is never stored.
+* **Instances: several versions side by side.** When you update or change the version of an installed game, Super
+  Nova asks whether to *update this install* or *add a new instance*. A new instance installs that version in its own
+  folder next to your copy (with its own Proton prefix), so you can keep, say, 1.0 for mods and the newest version
+  for everything else. The game page's **Installs** card lists every instance with Play and a menu to update,
+  change version, make it the default, open its folder or uninstall it; *Add instance…* installs another one.
 
 ![Change version](docs/screenshots/change-version.png)
 
@@ -181,12 +189,12 @@ Safety:
 * Every Super Nova module is loaded at start-up, so swapping files on disk can't leave a half-updated program
   running.
 * An update that arrives while a game is running or a download is active waits until they finish.
-* After installing, a banner offers *Restart now*, or Super Nova restarts on its own after 20 seconds once nothing is
-  running. Games and downloads are never interrupted.
+* After installing, a banner offers *Restart now*. Super Nova never restarts on its own; the new version starts the
+  next time you restart it.
 * A note after the restart lists the commits that were applied.
 
 Settings › Updates shows the version and commit, the install type and status, and a *Check for updates now*
-button. It also has switches for automatic checking, installing and restarting, plus the check interval and the
+button. It also has switches for automatic checking and installing, plus the check interval and the
 repository/branch to follow. Start with `supernova --no-update` (or set `SUPERNOVA_NO_UPDATE=1`) to turn the updater
 off for one session.
 

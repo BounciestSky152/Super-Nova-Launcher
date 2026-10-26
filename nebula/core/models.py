@@ -63,10 +63,11 @@ class Game:
     added_at: float = 0.0
     store_url: str = ""
     extra: dict = field(default_factory=dict)
+    instance: str = ""  # "2", "3"...: another install of the same game, with its own folder and version
 
     @property
     def uid(self) -> str:
-        return f"{self.source}:{self.source_id}"
+        return f"{self.source}:{self.source_id}" + (f"~{self.instance}" if self.instance else "")
 
     @property
     def key(self) -> str:
