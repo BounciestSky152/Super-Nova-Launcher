@@ -110,7 +110,7 @@ class SectionHeader(QWidget):
 
 
 class BrandMark(QWidget):
-    """The sidebar logo: a ringed planet and the app's name in starlight lettering."""
+    """The sidebar logo: a supernova and the app's name in starlight lettering."""
 
     def __init__(self):
         super().__init__()
@@ -120,37 +120,31 @@ class BrandMark(QWidget):
     def paintEvent(self, _e):  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        light = theme.light()  # Super Nova: a hot planet with a golden ring, the name in magenta, orange and gold
+        light = theme.light()
         c = QPointF(34, 32)
-        halo = QRadialGradient(c, 26)
-        halo.setColorAt(0, QColor(255, 61, 139, 80) if light else QColor(140, 100, 255, 70))
-        halo.setColorAt(1, QColor(255, 182, 0, 0) if light else QColor(140, 100, 255, 0))
+        glow = QRadialGradient(c, 25)  # the blast: white-hot core, then gold, orange, pink fading into violet
+        for at, col in ((0, QColor(255, 255, 255)), (0.15, QColor(255, 240, 180)), (0.35, QColor(255, 176, 0, 235)),
+                        (0.6, QColor(255, 60, 120, 150)), (1, QColor(123, 47, 247, 0))):
+            glow.setColorAt(at, col)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(halo)
-        p.drawEllipse(c, 26, 26)
-        ring = QPen(QColor(255, 150, 20, 220) if light else QColor(205, 190, 255, 170), 1.6)
-        p.save()  # back half of the ring, behind the planet
-        p.translate(c)
-        p.rotate(-22)
-        p.setPen(ring)
+        p.setBrush(glow)
+        p.drawEllipse(c, 25, 25)
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawArc(QRectF(-19, -6, 38, 12), 0, 180 * 16)
-        p.restore()
-        body = QLinearGradient(c.x() - 10, c.y() - 10, c.x() + 10, c.y() + 10)
-        for at, dark, nova in ((0, QColor(196, 168, 255), QColor(255, 214, 90)), (0.55, QColor(122, 82, 214), NOVA[0]),
-                               (1, QColor(46, 70, 160), NOVA[4])):
-            body.setColorAt(at, nova if light else dark)
+        p.setPen(QPen(QColor(177, 76, 255, 190) if light else QColor(38, 208, 255, 150), 1.3))
+        p.drawEllipse(c, 17, 17)  # the shock wave
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(body)
-        p.drawEllipse(c, 10.5, 10.5)
-        p.save()  # front half of the ring
-        p.translate(c)
-        p.rotate(-22)
-        p.setPen(ring)
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawArc(QRectF(-19, -6, 38, 12), 180 * 16, 180 * 16)
-        p.restore()
-        _sparkle(p, QPointF(52, 15), 3, QColor(255, 160, 0) if light else QColor(255, 255, 255, 220))
+        p.setBrush(QColor(255, 150, 20) if light else QColor(255, 248, 224))
+        for angle, reach in ((0, 23.0), (45, 13.0)):  # four long rays and four short diagonal ones
+            ray = QPainterPath()
+            for i in range(8):
+                r = reach if i % 2 == 0 else 2.2
+                a = math.radians(angle + i * 45)
+                pt = QPointF(c.x() + r * math.cos(a), c.y() + r * math.sin(a))
+                ray.moveTo(pt) if i == 0 else ray.lineTo(pt)
+            ray.closeSubpath()
+            p.drawPath(ray)
+        p.setBrush(QColor(255, 255, 255))
+        p.drawEllipse(c, 3.6, 3.6)
         size, name = 15.0, APP_NAME.upper()
         while True:  # the name in the biggest lettering that fits beside the planet
             f = theme.font("display", size)

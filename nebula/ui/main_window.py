@@ -351,7 +351,7 @@ class MainWindow(QMainWindow):
             return
         m = self.tray_menu
         m.clear()
-        m.addAction(icons.icon("nebula"), f"Show {APP_NAME}", self.show_window)
+        m.addAction(icons.icon("supernova"), f"Show {APP_NAME}", self.show_window)
         m.addSeparator()
         running = list(self.s.launcher.running.values())
         for st in running:

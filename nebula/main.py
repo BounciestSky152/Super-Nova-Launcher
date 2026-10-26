@@ -176,12 +176,13 @@ def _install_icon() -> None:
     import os
     from pathlib import Path
 
-    src = Path(__file__).resolve().parent / "assets" / "nebula.svg"
+    src = Path(__file__).resolve().parent / "assets" / "supernova.svg"
     data = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
     dst = data / "icons" / "hicolor" / "scalable" / "apps" / f"{APP_ID}.svg"
     try:
         dst.parent.mkdir(parents=True, exist_ok=True)
-        if not dst.exists() or dst.read_bytes() != src.read_bytes():
+        changed = not dst.exists() or dst.read_bytes() != src.read_bytes()
+        if changed:
             dst.write_bytes(src.read_bytes())
         entry = data / "applications" / f"{APP_ID}.desktop"
         legacy = data / "applications" / f"{LEGACY_APP_ID}.desktop"
@@ -194,8 +195,19 @@ def _install_icon() -> None:
         if entry.exists():
             text = entry.read_text()
             fixed = "\n".join(f"Icon={dst}" if line.startswith("Icon=") else line for line in text.splitlines()) + "\n"
-            if fixed != text:
-                entry.write_text(fixed)
+            if fixed != text or changed:
+                entry.write_text(fixed)  # rewriting it makes menus and docks reload the icon
+        if changed:  # a new logo: drop the desktop's cached copy of the old one
+            import subprocess
+
+            hicolor = dst.parents[2]
+            os.utime(hicolor)
+            for cmd in (["gtk-update-icon-cache", "-f", "-t", str(hicolor)],
+                        ["update-desktop-database", str(data / "applications")]):
+                try:
+                    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+                except (OSError, subprocess.SubprocessError):
+                    pass
     except OSError:
         pass
     from nebula.core import autostart

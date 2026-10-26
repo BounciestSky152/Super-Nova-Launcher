@@ -90,7 +90,9 @@ ICONS: dict[str, str] = {
     "proton": '<circle cx="12" cy="12" r="2.2" fill="currentColor"/><ellipse cx="12" cy="12" rx="9" ry="3.6"/>'
               '<ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(60 12 12)"/>'
               '<ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(-60 12 12)"/>',
-    "nebula": '<circle cx="12" cy="12" r="3.2" fill="currentColor"/><path d="M3 15c3-6 15-12 18-6"/>'
+    "nebula": '<circle cx="12" cy="12" r="3.2" fill="currentColor"/><path d="M3 15c3-6 15-12 18-6"/>',
+    "supernova": '<circle cx="12" cy="12" r="2.6" fill="currentColor"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5'
+                 'M5 5l3 3M16 16l3 3M19 5l-3 3M8 16l-3 3"/>'
               '<path d="M21 9c-3 6-15 12-18 6"/>',
 }
 
@@ -150,10 +152,10 @@ def badge(letter: str, color: str, size: int = 16, ratio: float = 2.0) -> QPixma
 
 
 def app_icon() -> QIcon:
-    """The ringed-planet logo; the same SVG is installed as the desktop/taskbar icon."""
+    """The supernova logo; the same SVG is installed as the desktop/taskbar icon."""
     from pathlib import Path
 
-    svg = Path(__file__).resolve().parent.parent / "assets" / "nebula.svg"
+    svg = Path(__file__).resolve().parent.parent / "assets" / "supernova.svg"
     renderer = QSvgRenderer(str(svg))
     ic = QIcon()
     for size in (16, 22, 24, 32, 48, 64, 128, 256):
