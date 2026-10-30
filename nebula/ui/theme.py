@@ -506,8 +506,8 @@ QSplitter::handle {{ background: {BORDER}; }}
 QSS = QSS_TEMPLATE.format(**PALETTES[PALETTE])
 
 
-# fonts picked in Settings › General › Appearance ("" = system font); Audiowide and Orbitron ship with Super Nova
-FONTS = {"ui": "", "display": "Audiowide", "sidebar": "Orbitron"}
+# fonts picked in Settings › General › Appearance ("" = system font); Super Nova's own two are the defaults
+FONTS = {"ui": "", "display": "Supernova Display", "sidebar": "Constellation"}
 _base_font: QFont | None = None
 _fonts_loaded = False
 

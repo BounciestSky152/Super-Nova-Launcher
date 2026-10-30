@@ -79,7 +79,8 @@ def build(name: str, style: str, glyphs: dict, path: Path) -> None:
 H, C, R = 700, 105, 44  # cap height, chamfer, half the stroke
 
 
-def stroke_glyph(lines: list, width: float, scale: tuple = (1.0, 1.0), r: float = R, node: float = R) -> tuple:
+def stroke_glyph(lines: list, width: float, scale: tuple = (1.0, 1.0), r: float = R, node: float = R,
+                 side: float = 70) -> tuple:
     """Polylines drawn with half-width ``r``; every vertex gets a disc of radius ``node``."""
     sx, sy = scale
     polys = []
@@ -88,7 +89,6 @@ def stroke_glyph(lines: list, width: float, scale: tuple = (1.0, 1.0), r: float 
         for p, q in zip(pts, pts[1:]):
             polys.append(bar(p, q, r))
         polys += [disc(x, y, node, 20) for x, y in pts]
-    side = 70
     return width * sx + 2 * side, [[(x + side, y) for x, y in poly] for poly in polys]
 
 
@@ -185,7 +185,7 @@ def constellation_glyphs() -> dict:
     caps, digits, marks = skeletons()
     out = {" ": (300, [])}
     for ch, (w, lines) in {**caps, **digits, **marks}.items():
-        out[ch] = stroke_glyph(lines, w, r=13, node=40)
+        out[ch] = stroke_glyph(lines, w, r=20, node=44, side=125)  # roomy: it's read small in the sidebar
     for ch, (w, lines) in caps.items():  # an all-capitals face
         out[ch.lower()] = out[ch]
     return out

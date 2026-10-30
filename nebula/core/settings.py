@@ -83,8 +83,8 @@ DEFAULTS: dict[str, Any] = {
     "updates.github_token": "",
     "appearance.theme": "nebula",  # nebula | classic
     "appearance.font_ui": "",  # "" = the system font
-    "appearance.font_display": "Audiowide",  # logo, section headers, page titles
-    "appearance.font_sidebar": "Orbitron",  # only needed for a private repository
+    "appearance.font_display": "Supernova Display",  # logo, section headers, page titles
+    "appearance.font_sidebar": "Constellation",  # only needed for a private repository
     # Appearance
     "appearance.starfield": True,
     "appearance.animate_stars": True,
@@ -111,6 +111,9 @@ class Settings:
                 self._data = json.loads(self._path.read_text())
             except (OSError, ValueError):
                 self._data = {}
+            for key, old in (("appearance.font_display", "Audiowide"), ("appearance.font_sidebar", "Orbitron")):
+                if self._data.get(key) == old:  # the old defaults, never chosen by hand: use the new ones
+                    self._data.pop(key)
             if str(self._data.get("updates.repo", "")).lower() == "bounciestsky152/nebula-launcher":
                 self._data["updates.repo"] = DEFAULTS["updates.repo"]  # the repository was renamed
 

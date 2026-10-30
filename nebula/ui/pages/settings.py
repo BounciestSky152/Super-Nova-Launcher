@@ -105,7 +105,7 @@ class SettingsPage(Page):
         return c
 
     def font_combo(self, key: str) -> QComboBox:
-        """Any installed font (the bundled Audiowide and Orbitron included), or the system font."""
+        """Any installed font (the bundled ones included), or the system font."""
         from PySide6.QtGui import QFontDatabase
 
         c = QComboBox()

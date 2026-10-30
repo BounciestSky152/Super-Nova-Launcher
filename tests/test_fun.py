@@ -53,7 +53,9 @@ def test_konami_words_and_milestones(qapp, services, monkeypatch):
               Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_B, Qt.Key.Key_A):
         send_key(k)
         pump(qapp, 0.02)
-    pump(qapp, 1.6)
+    end = time.time() + 5  # party mode follows the warp after a moment
+    while len(calls) < 2 and time.time() < end:
+        pump(qapp, 0.05)
     assert calls[:2] == ["warp", "party"]
     calls.clear()
     w.topbar.search.setText("Let it snow")
