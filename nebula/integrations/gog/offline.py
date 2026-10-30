@@ -219,7 +219,26 @@ def install_linux_remote(session: requests.Session, ctx: JobContext, url: str, i
         p = install_dir / rel
         if p.is_symlink() or p.is_file():
             p.unlink()
+    fix_permissions(install_dir)
     return files
+
+
+def fix_permissions(root: Path) -> int:
+    """Make programs and scripts executable where the installer's archive didn't say so (zip entries without
+    Unix modes): start.sh would otherwise fail to run the game. Returns how many files were fixed."""
+    fixed = 0
+    for p in root.rglob("*"):
+        try:
+            if p.is_symlink() or not p.is_file() or p.stat().st_mode & 0o111:
+                continue
+            with open(p, "rb") as fh:
+                head = fh.read(4)
+            if head == b"\x7fELF" or head[:2] == b"#!":
+                p.chmod(p.stat().st_mode | 0o111)
+                fixed += 1
+        except OSError:
+            continue
+    return fixed
 
 
 def _write_member(z: zipfile.ZipFile, m: zipfile.ZipInfo, dest: Path, ctx: JobContext) -> None:
@@ -281,6 +300,7 @@ def extract_linux_installer(ctx: JobContext, installer_path: Path, install_dir: 
                     ctx.add(len(block), network=False)
             if mode & 0o777:
                 os.chmod(dest, mode & 0o777)
+    fix_permissions(install_dir)
 
 
 def extract_windows_installer(ctx: JobContext, setup_exe: Path, install_dir: Path, compat=None,

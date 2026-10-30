@@ -136,6 +136,16 @@ class GameLauncher(QObject):
         log.error("Launching %s failed: %s", game.title, exc)
         self.bus.error.emit(f"Could not start {game.title}", str(exc))
 
+    def _crash_text(self, uid: str, code: int) -> str:
+        """The exit code and the last lines the game printed (its log), to say why it didn't start."""
+        try:
+            lines = [ln for ln in self.log_file(uid).read_text(errors="replace").splitlines()
+                     if ln.strip() and not ln.startswith("#")]
+        except OSError:
+            lines = []
+        tail = "\n".join(lines[-4:])
+        return f"Exit code {code}." + (f"\n{tail}" if tail else "") + f"\nFull log: {self.log_file(uid)}"
+
     def log_file(self, uid: str):
         return paths.logs_dir() / (uid.replace(":", "_").replace("/", "_") + ".log")
 
@@ -249,6 +259,9 @@ class GameLauncher(QObject):
         self.running.pop(st.uid, None)
         end = max(st.seen, st.start)
         duration = end - st.start
+        code = st.proc.returncode if st.proc is not None else None
+        if code not in (None, 0) and time.time() - st.start < 60 and not st.external:  # died at start-up
+            self.bus.error.emit(f"{st.title} closed right away", self._crash_text(st.uid, code))
         if duration >= MIN_SESSION:
             self.s.db.add_session(st.uid, st.key, st.start, end)
             self.s.db.log_activity("session", f"Played {st.title} for {int(duration // 60)} min", st.uid)

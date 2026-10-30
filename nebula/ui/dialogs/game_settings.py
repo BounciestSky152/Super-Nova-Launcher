@@ -73,14 +73,19 @@ class GameSettingsDialog(QDialog):
         form.setSpacing(10)
         is_windows = self.game.platform == "windows" or (not self.game.platform and "windows" in self.game.os_support)
         info = label("This is a Windows game: it runs through Proton by default." if is_windows else
-                     "This is a native Linux game. Compatibility settings only apply if you force a Windows runner.",
+                     "This is a native Linux game: it runs directly, without Proton.",
                      "Subtle", wrap=True)
         form.addRow(info)
         self.runner = QComboBox()
-        self.runner.addItem("Default (" + ("Proton" if self.s.settings.get("compat.default_runner") != "wine" else "Wine") + ")", "")
-        self.runner.addItem("Proton", "proton")
-        self.runner.addItem("Wine", "wine")
-        self.runner.addItem("None — run natively", "native")
+        if is_windows:
+            self.runner.addItem("Default (" + ("Proton" if self.s.settings.get("compat.default_runner") != "wine"
+                                               else "Wine") + ")", "")
+            self.runner.addItem("Proton", "proton")
+            self.runner.addItem("Wine", "wine")
+            self.runner.addItem("None — run natively", "native")
+        else:  # a Linux build always runs natively; Proton and Wine can't run it
+            self.runner.addItem("Native Linux build", "")
+            self.runner.setEnabled(False)
         self.runner.setCurrentIndex(max(0, self.runner.findData(self.cfg.get("runner", ""))))
         form.addRow("Runner", self.runner)
         self.proton = QComboBox()

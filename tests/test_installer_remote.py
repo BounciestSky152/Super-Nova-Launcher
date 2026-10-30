@@ -185,3 +185,17 @@ def test_dlc_dialog_lists_everything(qapp):
     dlg.list.item(0).setCheckState(Qt.CheckState.Unchecked)  # remove A, add B
     dlg.list.item(1).setCheckState(Qt.CheckState.Checked)
     assert dlg.wanted() == ["2"]
+
+
+def test_fix_permissions(tmp_path):
+    """Programs and scripts an archive left without Unix modes become executable; data files don't."""
+    (tmp_path / "game").mkdir()
+    (tmp_path / "game" / "Binary").write_bytes(b"\x7fELF" + b"\0" * 20)
+    (tmp_path / "start.sh").write_bytes(b"#!/bin/bash\necho hi\n")
+    (tmp_path / "data.pak").write_bytes(b"PAK!")
+    for p in tmp_path.rglob("*"):
+        if p.is_file():
+            p.chmod(0o644)
+    assert offline.fix_permissions(tmp_path) == 2
+    assert os.access(tmp_path / "game" / "Binary", os.X_OK) and os.access(tmp_path / "start.sh", os.X_OK)
+    assert not os.access(tmp_path / "data.pak", os.X_OK)

@@ -505,6 +505,10 @@ class GogIntegration(Integration):
             start = base_dir / "start.sh"
             if not start.exists():
                 raise FileNotFoundError(f"{start} is missing - try repairing the game")
+            rec = self.install_record(self.rkey(game)) or {}
+            if rec and not rec.get("perms_ok"):  # installs from before the permission fix: once
+                offline.fix_permissions(base_dir)
+                self._patch_record(self.rkey(game), str(rec.get("build_id") or ""), perms_ok=True)
             return compat.build(game.uid, str(start), [], cwd=str(base_dir), platform="linux")
         info = self._info_file(game)
         if not info:
