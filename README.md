@@ -64,6 +64,7 @@ hand show up in the same library.
 | ![Library](docs/screenshots/library.png) | ![Game page](docs/screenshots/game.png) |
 | ![Store](docs/screenshots/store.png) | ![Downloads](docs/screenshots/downloads.png) |
 | ![Version card](docs/screenshots/version-card.png) | ![Proton settings](docs/screenshots/game-proton-settings.png) |
+| ![Super Nova theme](docs/screenshots/supernova-theme.png) | ![Handheld mode](docs/screenshots/handheld.png) |
 
 ## Hooking up other platforms
 
