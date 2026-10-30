@@ -376,7 +376,7 @@ def test_version_card_pin_toggle(qapp, services, errors, caplog, monkeypatch, tm
     assert card.update_btn.objectName() != "Primary"
     gp.tabs.setCurrentIndex(4)
     pump(qapp, 0.1)
-    assert _info_rows(gp)["UPDATES"] == "Off — staying on 1.0"
+    assert _info_rows(gp)["UPDATES"] == "Off, staying on 1.0"
     gp.tabs.setCurrentIndex(0)
 
     n = len(calls)

@@ -99,7 +99,7 @@ class JobRow(QWidget):
             self.stage.setText("Canceled")
         else:
             self.stage.setText("Canceling…" if j._cancel.is_set()
-                               else f"{verb} — {j.stage}" if j.state != "queued" else "Queued")
+                               else f"{verb}: {j.stage}" if j.state != "queued" else "Queued")
         self.bar.setVisible(j.active)
         self.bar.setValue(int(j.progress * 1000))
         parts = []

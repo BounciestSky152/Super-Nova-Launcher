@@ -281,7 +281,7 @@ def test_change_version_dialog(qapp, services, errors, monkeypatch):
 
     # b1 installed on Stable; b2 newest Stable; b3 newest beta
     dlg = ChangeVersionDialog(services, _game(), builds_info("b1", "behind"))
-    assert dlg.windowTitle() == "Change version — Alpha"
+    assert dlg.windowTitle() == "Change version: Alpha"
     assert dlg.sub.text() == "Installed: 1.0 · Stable · released 1 Jan 2024"
     assert not dlg.channel_row.isHidden() and dlg.channel.currentText() == "Stable (recommended)"
     assert [dlg.channel.itemText(i) for i in range(dlg.channel.count())] == ["Stable (recommended)", "Public beta"]

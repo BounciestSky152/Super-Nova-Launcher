@@ -121,7 +121,7 @@ class AddGameDialog(QDialog):
 class TagsDialog(QDialog):
     def __init__(self, all_tags: list[str], current: list[str], title: str, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"Tags — {title}")
+        self.setWindowTitle(f"Tags: {title}")
         self.setMinimumWidth(360)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(18, 18, 18, 18)
@@ -240,7 +240,7 @@ class ProtonDialog(QDialog):
         for r in releases:
             done = r["tag"] in installed
             it = QListWidgetItem(f"{r['tag']}    {r['date'][:10]}    {human_size(r['size'])}" +
-                                 ("    — installed" if done else ""))
+                                 ("  (installed)" if done else ""))
             it.setData(Qt.ItemDataRole.UserRole, r)
             if done:
                 it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEnabled)

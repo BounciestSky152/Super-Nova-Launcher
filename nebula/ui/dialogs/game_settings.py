@@ -32,7 +32,7 @@ class GameSettingsDialog(QDialog):
         self.game = game
         self.compat = services.compat
         self.cfg = services.db.get_config(game.uid)
-        self.setWindowTitle(f"{game.title} — Settings")
+        self.setWindowTitle(f"{game.title} settings")
         self.resize(720, 620)
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 18, 18, 18)
@@ -82,7 +82,7 @@ class GameSettingsDialog(QDialog):
                                                else "Wine") + ")", "")
             self.runner.addItem("Proton", "proton")
             self.runner.addItem("Wine", "wine")
-            self.runner.addItem("None — run natively", "native")
+            self.runner.addItem("None (run natively)", "native")
         else:  # a Linux build always runs natively; Proton and Wine can't run it
             self.runner.addItem("Native Linux build", "")
             self.runner.setEnabled(False)
@@ -92,7 +92,7 @@ class GameSettingsDialog(QDialog):
         default = self.compat.default_proton()
         self.proton.addItem(f"Default ({default.name if default else 'none installed'})", "")
         for r in self.compat.protons:
-            self.proton.addItem(f"{r.name}  —  {r.origin}", r.path)
+            self.proton.addItem(f"{r.name}  ({r.origin})", r.path)
         self.proton.setCurrentIndex(max(0, self.proton.findData(self.cfg.get("proton", ""))))
         form.addRow("Proton version", self.proton)
         self.wine = QComboBox()
@@ -103,8 +103,7 @@ class GameSettingsDialog(QDialog):
         form.addRow("Wine version", self.wine)
         umu = find_umu()
         form.addRow("umu-launcher", label(f"Found: {umu}" if umu else
-                                          "Not installed — Proton runs directly (install umu in Settings › "
-                                          "Compatibility for Steam Runtime + protonfixes)", "Faint", wrap=True))
+                                          "Not installed. Optional, you can add it in Settings › Compatibility.", "Faint", wrap=True))
         prefix_row = QHBoxLayout()
         self.prefix = QLineEdit(self.cfg.get("prefix", ""))
         self.prefix.setPlaceholderText(str(self.compat.prefix_for(self.game.uid, {})))

@@ -37,7 +37,7 @@ class ChangeVersionDialog(QDialog):
         self.choice: dict | None = None
         self._closed = False
         self._token = 0
-        self.setWindowTitle(f"Change version — {game.title}")
+        self.setWindowTitle(f"Change version: {game.title}")
         self.setMinimumSize(600, 500)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(18, 18, 18, 18)

@@ -177,7 +177,7 @@ class LibraryPage(Page):
             self.table.set_entries(entries)
         if not entries:
             self.empty_lbl.setText("No games match these filters." if self.s.library.entries else
-                                   "Your library is empty — connect a platform or add a game.")
+                                   "Nothing here yet. Sign in to a store or add a game.")
             self.stack.setCurrentWidget(self.empty)
         else:
             self.stack.setCurrentWidget(self.grid if self._view == "grid" else self.table)

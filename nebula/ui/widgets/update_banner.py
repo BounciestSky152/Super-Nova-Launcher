@@ -54,16 +54,16 @@ class UpdateBanner(QFrame):
         self.primary.show()
         self.secondary.show()
         if st == su.AVAILABLE:
-            self.text.setText(f"<b>Super Nova update available</b> — {upd.message}")
+            self.text.setText(f"<b>Super Nova update available.</b> {upd.message}")
             manual = upd.mode() == "manual"
             self.primary.setText("View on GitHub" if manual else "Update now")
             self.secondary.setText("Details")
         elif st == su.WAITING:
-            self.text.setText(f"<b>Super Nova update ready</b> — {upd.message}")
+            self.text.setText(f"<b>Super Nova update ready.</b> {upd.message}")
             self.primary.setText("Update now")
             self.secondary.hide()
         elif st == su.INSTALLING:
-            self.text.setText(f"<b>Updating Super Nova</b> — {upd.message}")
+            self.text.setText(f"<b>Updating Super Nova.</b> {upd.message}")
             self.primary.hide()
             self.secondary.hide()
         else:  # INSTALLED

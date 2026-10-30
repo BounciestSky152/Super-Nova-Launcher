@@ -280,10 +280,10 @@ class SettingsPage(Page):
         sha = upd.installed_sha()
         self.upd_version.setText(f"Super Nova {self._version}" + (f"  \u2022  commit {sha[:7]}" if sha else ""))
         self.upd_mode.setText({
-            "git": "Git checkout \u2014 updates are fast-forward pulls",
-            "pip": "Installed with scripts/install.sh \u2014 updates reinstall the new source into Super Nova's venv",
-            "files": "Source folder \u2014 changed files are replaced in place",
-            "manual": "Read-only installation \u2014 you'll be told when an update exists",
+            "git": "Git clone (updates are pulled from GitHub)",
+            "pip": "Installed with install.sh",
+            "files": "Copied source folder",
+            "manual": "Read-only install, so you'll only get told about updates",
         }.get(upd.mode(), upd.mode()))
         state = upd.state()
         checked = state.get("last_check")
@@ -431,7 +431,7 @@ class SettingsPage(Page):
         f3.addRow("Status", self.umu_status)
         self.umu_btn = button("Install umu-launcher", "download")
         self.umu_btn.clicked.connect(lambda: (self.s.actions.install_umu(), self.win.toast(
-            "umu-launcher", "Downloading — see Downloads")))
+            "umu-launcher", "Downloading, see Downloads")))
         f3.addRow("", self.umu_btn)
         f3.addRow(self.check("compat.use_umu", "Use umu-launcher for Proton when it is available"))
         lay.addWidget(g3)
@@ -461,11 +461,11 @@ class SettingsPage(Page):
         self.runner_list.clear()
         for r in compat.protons + compat.wines:
             it = QListWidgetItem(icons.icon("proton" if r.kind == "proton" else "wine", theme.TEXT_DIM),
-                                 f"{r.name}    —  {r.origin}    {r.path}")
+                                 f"{r.name}  ({r.origin})  {r.path}")
             it.setData(Qt.ItemDataRole.UserRole, r)
             self.runner_list.addItem(it)
         if not self.runner_list.count():
-            self.runner_list.addItem("No Proton found — click “Download GE-Proton” to run Windows games.")
+            self.runner_list.addItem("No Proton yet. Download GE-Proton to play Windows games.")
         for combo, items, key in ((self.def_proton, compat.protons, "compat.default_proton"),
                                   (self.def_wine, compat.wines, "compat.default_wine")):
             combo.blockSignals(True)
@@ -476,7 +476,7 @@ class SettingsPage(Page):
             combo.setCurrentIndex(max(0, combo.findData(self.st.get(key))))
             combo.blockSignals(False)
         umu = find_umu()
-        self.umu_status.setText(f"<span style='color:{theme.SUCCESS}'>Installed</span> — {umu}" if umu else
+        self.umu_status.setText(f"<span style='color:{theme.SUCCESS}'>Installed</span> ({umu})" if umu else
                                 "Not installed. Proton will be started directly (works for most games).")
         self.umu_btn.setText("Reinstall / update umu-launcher" if umu else "Install umu-launcher")
         clear_layout(self.tools_lay)
@@ -489,7 +489,7 @@ class SettingsPage(Page):
             path = find_umu() if binary == "umu-run" else which(binary)
             ok = bool(path)
             row = label(f"<span style='color:{theme.SUCCESS if ok else theme.TEXT_FAINT}'>"
-                        f"{'✔' if ok else '✖'}</span>  <b>{name}</b> — {purpose}"
+                        f"{'✔' if ok else '✖'}</span>  <b>{name}</b>: {purpose}"
                         + (f"  <span style='color:{theme.TEXT_FAINT}'>({path})</span>" if ok else ""))
             self.tools_lay.addWidget(row)
 
@@ -570,7 +570,7 @@ class SettingsPage(Page):
         pb = button("Open plugins folder", "puzzle")
         pb.clicked.connect(lambda: xdg_open(str(paths.plugins_dir())))
         plug.addWidget(pb)
-        plug.addWidget(label("Drop integration plugins (.py) here and restart Super Nova — see "
+        plug.addWidget(label("Put plugin .py files in there and restart. There's an example in "
                              "docs/examples/example_plugin.py.", "Faint", wrap=True), 1)
         lay.addLayout(plug)
         lay.addStretch(1)

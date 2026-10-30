@@ -118,8 +118,8 @@ class SelfUpdateService(QObject):
         self.info = info
         summary = info.summary()
         if self.mode() == "manual":
-            self._set(AVAILABLE, f"An update is available ({summary}). This installation is read-only — "
-                                 "reinstall Super Nova to update.")
+            self._set(AVAILABLE, f"An update is out ({summary}), but this install is read-only. "
+                                 "Reinstall Super Nova to get it.")
             return
         if self.settings.get("updates.auto_install") or manual:
             self._set(AVAILABLE, f"Update found: {summary}")

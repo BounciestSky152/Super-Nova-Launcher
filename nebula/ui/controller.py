@@ -148,7 +148,7 @@ class UiController:
         else:
             job = self.s.actions.update(game)
         if job:
-            self.w.toast(game.title, f"{job.verb} — added to the download queue")
+            self.w.toast(game.title, f"{job.verb} (see Downloads)")
 
     def ask_instance(self, game, label: str = "") -> str:
         """"update" (this install), "instance" (a new one next to it) or "" (cancelled)."""
@@ -230,7 +230,7 @@ class UiController:
     def set_dlcs(self, game, wanted: list[str]) -> None:
         job = self.s.actions.set_dlcs(game, wanted)
         if job:
-            self.w.toast(game.title, f"{job.verb} — added to the download queue")
+            self.w.toast(game.title, f"{job.verb} (see Downloads)")
 
     def settings(self, game) -> None:
         from nebula.ui.dialogs.game_settings import GameSettingsDialog

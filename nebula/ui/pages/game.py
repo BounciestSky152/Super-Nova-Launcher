@@ -527,7 +527,7 @@ class GamePage(Page):
                 else:
                     runner = self.s.compat.runner_for(inst.uid, cfg)
                     if runner is None:
-                        self.st_run.set("Proton", "Not installed \u2014 click Play to get GE-Proton")
+                        self.st_run.set("Proton", "Not installed yet, Play will fetch GE-Proton")
                         self.st_run.sub.setStyleSheet(f"color:{theme.WARNING}; font-size: 9pt;")
                     else:
                         self.st_run.set("Proton" if runner.kind == "proton" else "Wine", runner.name)
@@ -644,7 +644,7 @@ class GamePage(Page):
             return
         verb = job.verb or {"install": "Installing", "update": "Updating", "repair": "Verifying",
                             "uninstall": "Uninstalling", "dlc": "Installing DLC"}.get(job.kind, job.kind.title())
-        self.job_text.setText(f"{verb} — {job.stage}")
+        self.job_text.setText(f"{verb}: {job.stage}")
         self.job_bar.setValue(int(job.progress * 1000))
         parts = []
         if job.total:
@@ -930,11 +930,11 @@ class GamePage(Page):
             else:
                 newest = latest.label
             if info.stale and info.checked_at:
-                newest += f" — last checked {_rel(info.checked_at)}"
+                newest += f" (checked {_rel(info.checked_at)})"
         if info.kind not in ("builds", "installer"):
             updates = ""
         elif info.pinned:
-            updates = f"Off — staying on {mine}"
+            updates = f"Off, staying on {mine}"
         elif not info.auto_update:
             updates = "Manual (you'll be notified)"
         elif not self.s.settings.get("downloads.auto_update"):
@@ -975,7 +975,7 @@ class GamePage(Page):
                                                                                    "filter": {"tags": [t]}}))
             self.tags_flow.addWidget(b)
         if not e.user.tags:
-            self.tags_flow.addWidget(label("No tags — use + to organise this game.", "Faint"))
+            self.tags_flow.addWidget(label("No tags yet.", "Faint"))
         clear_layout(self.plat_lay)
         self.plat_lay.addWidget(label("Platforms", "SectionTitle"))
         for game in e.games:
