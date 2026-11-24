@@ -9,6 +9,7 @@ import shlex
 import shutil
 import threading
 import time
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -293,6 +294,8 @@ class GogIntegration(Integration):
 
         if not instance:
             taken = {k.partition("~")[2] for k in self.installs() if k.partition("~")[0] == game.source_id}
+            prefix = f"{self.id}:{game.source_id}~"  # instances still installing have no record yet
+            taken |= {j.uid[len(prefix):] for j in self.services.jobs.active_jobs() if j.uid.startswith(prefix)}
             instance = str(next(n for n in range(2, 1000) if str(n) not in taken))
         g = copy.deepcopy(game)
         g.instance, g.added_at = instance, time.time()
@@ -699,7 +702,7 @@ class GogIntegration(Integration):
         if rec.get("method", "").endswith("gen2"):
             return self._gen2(game, ctx, "repair", build_id=str(rec.get("build_id", "")))
         return self._offline(game, ctx, rec.get("platform", "linux"), language=rec.get("language", ""),
-                             dlcs=rec.get("dlcs", []), existing=Path(game.install_path))
+                             dlcs=rec.get("dlcs", []), existing=Path(game.install_path), verify=True)
 
     def set_dlcs(self, game: Game, dlc_ids: list[str], ctx: JobContext) -> Game:
         """Make the installed DLC exactly ``dlc_ids``: missing ones are installed, the others removed (their files
@@ -713,6 +716,11 @@ class GogIntegration(Integration):
         if drop:
             ctx.stage("Removing DLC")
             self._remove_installer_dlcs(game, drop)
+            with self._rec_lock:  # recorded now: a failed install of the added DLC must not strand these
+                data = self.installs()
+                if self.rkey(game) in data:
+                    data[self.rkey(game)]["dlcs"] = sorted(have - set(drop))
+                    self.db.kv_set(INSTALLS_KEY, data)
         add = sorted(set(wanted) - have)
         if add:
             return self._offline(game, ctx, rec.get("platform", "linux"), language=rec.get("language", ""),
@@ -729,10 +737,12 @@ class GogIntegration(Integration):
         """Delete the files of DLC installed from offline installers, using the file lists kept per package."""
         key = f"{self.rkey(game)}-installer"
         lists = dict((content.load_manifest(key) or {}).get("packages", {}))
-        missing = [d for d in dlc_ids if d not in lists]
+        rec = self.install_record(self.rkey(game)) or {}
+        needed = set(dlc_ids) | {game.source_id} | (set(rec.get("dlcs", [])) - set(dlc_ids))
+        missing = [d for d in needed if d not in lists]  # without every list a shared file could be deleted
         if missing:
-            raise base.NotSupported("This DLC was installed before Super Nova kept a list of its files, so it can't "
-                                    "be removed on its own. Uninstall the game and install it again without it.")
+            raise base.NotSupported("This game was installed before Super Nova kept a list of its files, so the "
+                                    "DLC can't be removed on its own. Repair the game once, then try again.")
         root = Path(game.install_path)
         for did in dlc_ids:
             files = lists.pop(did)
@@ -800,7 +810,7 @@ class GogIntegration(Integration):
             old_build = gen2.find(builds, str(rec.get("build_id")))
             if old_build:
                 old_info = gen2.build_info(old_build)
-                old_fs = gen2.file_set(old_info, language, dlc_list, ctx=ctx)
+                old_fs = gen2.file_set(old_info, language, [d for d in rec.get("dlcs", []) if d in owned], ctx=ctx)
                 old_record = content.build_manifest_record(old_info, old_fs, "windows", language, dlc_list,
                                                            str(install_dir), [])
         old_files = {f.path.lower(): f for f in content.manifest_files(old_record)} if old_record else {}
@@ -858,6 +868,8 @@ class GogIntegration(Integration):
             "latest": self._summary(self._build_ref(newest, newest=True), info.build_id, status, status == "behind",
                                     newer),
         }
+        if rec.get("instance_name"):
+            new_rec["instance_name"] = rec["instance_name"]
         self._set_record(self.rkey(game), new_rec)
         if changed:
             # pin rule: an explicitly chosen build that isn't the newest on its channel stops update offers;
@@ -872,7 +884,7 @@ class GogIntegration(Integration):
 
     def _offline(self, game: Game, ctx: JobContext, platform: str, base_dir: Path | None = None,
                  language: str = "", dlcs: list | None = None, existing: Path | None = None,
-                 dlc_only: bool = False, all_dlcs: list | None = None, folder: str = "") -> Game:
+                 dlc_only: bool = False, all_dlcs: list | None = None, folder: str = "", verify: bool = False) -> Game:
         ctx.stage("Fetching installer information")
         product = self.api.product(game.source_id, expand=("downloads", "expanded_dlcs"))
         language = language or self.settings.get("general.language") or "en"
@@ -895,6 +907,8 @@ class GogIntegration(Integration):
                     packages.append((did, dlc.get("title", did), di))
         saved = (content.load_manifest(f"{self.rkey(game)}-installer") or {}) if existing else {}
         lists = dict(saved.get("packages", {}))
+        before = {f for files in lists.values() for f in files}
+        unpacked: set = set()  # files of packages unpacked from the whole installer: kept, not tracked
         for pkg, title, package in packages:
             ctx.check()
             if platform == "linux" and package.get("files"):
@@ -903,13 +917,14 @@ class GogIntegration(Integration):
                     real = self.api.downlink(package["files"][0]["downlink"]).get("downlink")
                     if real:
                         lists[pkg] = offline.install_linux_remote(self.dl_session, ctx, real, install_dir,
-                                                                  lists.get(pkg))
+                                                                  lists.get(pkg), verify=verify, remove_dropped=False)
                         continue
-                except IOError as exc:
+                except (IOError, zipfile.BadZipFile) as exc:
                     if ctx.cancelled:
                         raise
                     log.warning("Partial download of %s not possible, downloading the whole installer: %s",
                                 title, exc)
+            unpacked |= set(lists.pop(pkg, None) or [])  # unpacked whole instead: its old list no longer holds
             files = offline.download_installer(self.api, self.dl_session, ctx, package, cache)
             ctx.stage(f"Installing {title}")
             if platform == "linux":
@@ -921,6 +936,8 @@ class GogIntegration(Integration):
                 for f in files:
                     f.unlink(missing_ok=True)
         ctx.stage("Finishing")
+        # files no package has any more (one that moved from a DLC into the base game is kept)
+        offline.remove_files(install_dir, before - {f for files in lists.values() for f in files} - unpacked)
         if lists:
             content.save_manifest(f"{self.rkey(game)}-installer", {"packages": lists})
         rec = self.install_record(self.rkey(game)) or {}
@@ -939,6 +956,9 @@ class GogIntegration(Integration):
                 base.BuildRef(version=version, size=int(inst.get("total_size") or 0), newest=True), version,
                 "up_to_date", False),
         }
+        for keep in ("instance_name", "perms_ok"):
+            if rec.get(keep):
+                new_rec[keep] = rec[keep]
         self._set_record(self.rkey(game), new_rec)
         if not dlc_only and self.db.get_config(game.uid).get("pin_version"):
             self.db.update_config(game.uid, pin_version=False)  # the newest installer is never a pinned choice

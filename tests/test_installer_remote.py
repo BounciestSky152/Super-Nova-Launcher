@@ -199,3 +199,70 @@ def test_fix_permissions(tmp_path):
     assert offline.fix_permissions(tmp_path) == 2
     assert os.access(tmp_path / "game" / "Binary", os.X_OK) and os.access(tmp_path / "start.sh", os.X_OK)
     assert not os.access(tmp_path / "data.pak", os.X_OK)
+
+
+def installer_with(entries: list) -> bytes:
+    """entries: (name, data, mode); mode 0o120777 makes a symlink whose target is ``data``."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data, mode in entries:
+            info = zipfile.ZipInfo("data/noarch/" + name)
+            info.external_attr = mode << 16
+            info.create_system = 3
+            z.writestr(info, data)
+    return b"#!/bin/sh\n" + buf.getvalue()
+
+
+def test_symlinks_and_repair(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    blob = {"data": installer_with([("game.bin", b"x" * 4000, 0o100755),
+                                    ("libsys.so", str(outside / "lib.so").encode(), 0o120777)])}
+    srv, url = serve(blob)
+    try:
+        s, dest = requests.Session(), tmp_path / "Game"
+        files = offline.install_linux_remote(s, Ctx(), url, dest, None)
+        assert (dest / "libsys.so").is_symlink()
+        offline.install_linux_remote(s, Ctx(), url, dest, files)  # an update with the outward link on disk works
+
+        (dest / "game.bin").write_bytes(b"y" * 4000)  # damaged, same size: only a repair notices
+        offline.install_linux_remote(s, Ctx(), url, dest, files)
+        assert (dest / "game.bin").read_bytes() == b"y" * 4000
+        offline.install_linux_remote(s, Ctx(), url, dest, files, verify=True)
+        assert (dest / "game.bin").read_bytes() == b"x" * 4000
+
+        blob["data"] = installer_with([("esc", str(outside).encode(), 0o120777), ("esc/pwn.txt", b"!", 0o100644)])
+        try:
+            offline.install_linux_remote(s, Ctx(), url, tmp_path / "Other", None)
+        except IOError:
+            pass
+        assert not (outside / "pwn.txt").exists()  # nothing is ever written through a link that leads out
+    finally:
+        srv.shutdown()
+
+
+def test_file_moving_from_dlc_to_base_is_kept(services, monkeypatch, tmp_path):
+    from conftest import make_ctx
+    from nebula.core.models import Game
+
+    gog = services.integrations["gog"]
+    monkeypatch.setattr(gog, "connected", lambda: True)
+    monkeypatch.setattr(gog, "owned_ids", lambda refresh=False: {"123", "999"})
+    base, dlc = {"data": installer({"game.bin": b"base"})}, {"data": installer({"extra.pak": b"dlc"})}
+    base_srv, base_url = serve(base)
+    dlc_srv, dlc_url = serve(dlc)
+    linux = {"os": "linux", "language": "en", "version": "1.0", "total_size": 1, "id": "installer_linux_en"}
+    product = {"id": 123, "downloads": {"installers": [dict(linux, files=[{"downlink": "base", "size": 1}])]},
+               "expanded_dlcs": [{"id": 999, "title": "Extra", "downloads": {"installers": [
+                   dict(linux, files=[{"downlink": "dlc", "size": 1}])]}}]}
+    monkeypatch.setattr(gog.api, "product", lambda pid, expand=(): product)
+    monkeypatch.setattr(gog.api, "downlink", lambda link: {"downlink": base_url if link == "base" else dlc_url})
+    try:
+        game = gog._offline(Game("gog", "123", "Test Game"), make_ctx(), "linux", base_dir=tmp_path, dlcs=["999"])
+        base["data"] = installer({"game.bin": b"base", "extra.pak": b"dlc"})  # merged into the base game
+        dlc["data"] = installer({"readme.txt": b"hi"})
+        gog.update(game, make_ctx())
+        assert (tmp_path / "Test Game" / "extra.pak").read_bytes() == b"dlc"
+    finally:
+        base_srv.shutdown()
+        dlc_srv.shutdown()

@@ -96,7 +96,8 @@ class Actions:
         return self._job(game, "update", f"{prefix} {game.title}",
                          lambda integ, g, ctx: integ.update(g, ctx, version),
                          done, verb=verb, verb_done=done,
-                         on_cancel=lambda: self.s.db.update_config(game.uid, update_declined=self._newest(game)))
+                         on_cancel=(lambda: self.s.db.update_config(game.uid, update_declined=self._newest(game)))
+                         if change == "update" else None)  # only a cancelled plain update is "not now"
 
     def _newest(self, game: Game) -> str:
         """The newest version on offer for ``game`` as far as is known, without the network ("?" = unknown)."""

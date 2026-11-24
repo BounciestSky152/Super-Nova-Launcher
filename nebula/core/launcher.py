@@ -260,7 +260,8 @@ class GameLauncher(QObject):
         end = max(st.seen, st.start)
         duration = end - st.start
         code = st.proc.returncode if st.proc is not None else None
-        if code not in (None, 0) and time.time() - st.start < 60 and not st.external:  # died at start-up
+        stopped = self._suppress.get(st.uid, 0) > time.time() or (code is not None and code < 0)  # we stopped it
+        if code not in (None, 0) and not stopped and time.time() - st.start < 60 and not st.external:  # died at start-up
             self.bus.error.emit(f"{st.title} closed right away", self._crash_text(st.uid, code))
         if duration >= MIN_SESSION:
             self.s.db.add_session(st.uid, st.key, st.start, end)

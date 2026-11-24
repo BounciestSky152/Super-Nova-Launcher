@@ -7,6 +7,7 @@ import os
 import shutil
 import stat
 import subprocess
+import threading
 import zipfile
 import zlib
 from concurrent.futures import ThreadPoolExecutor
@@ -83,6 +84,7 @@ class RemoteFile(io.RawIOBase):
     def __init__(self, session: requests.Session, url: str, ctx: JobContext | None = None):
         super().__init__()
         self.session, self.url, self.ctx = session, url, ctx
+        self.stop: threading.Event | None = None  # set when another connection of the same install failed
         self.pos = 0
         self.limit = 0
         self._start, self._buf = 0, b""
@@ -123,6 +125,8 @@ class RemoteFile(io.RawIOBase):
         for _attempt in range(4):
             if self.ctx:
                 self.ctx.check()
+            if self.stop is not None and self.stop.is_set():
+                raise IOError("stopped: another download connection failed")
             try:
                 r = self.session.get(self.url, headers={"Range": f"bytes={start}-{end - 1}"}, timeout=(15, 120))
                 if r.status_code != 206:
@@ -138,6 +142,15 @@ class RemoteFile(io.RawIOBase):
 
 
 GAME_DATA = "data/noarch/"
+
+
+def _inside(root: Path, path: Path) -> bool:
+    """Whether ``path`` stays in ``root``. The entry's own name isn't resolved: it may be a symlink an earlier run
+    created, which is fine even when it points outside; only the folders on the way must not lead out."""
+    if path.name in ("", ".", ".."):
+        return path.resolve() == root
+    parent = path.parent.resolve()
+    return parent == root or root in parent.parents
 
 
 def _crc(path: Path) -> int:
@@ -162,10 +175,11 @@ def _unchanged(m: zipfile.ZipInfo, dest: Path, known: list | None) -> bool:
 
 
 def install_linux_remote(session: requests.Session, ctx: JobContext, url: str, install_dir: Path,
-                         old: dict | None) -> dict:
+                         old: dict | None, verify: bool = False, remove_dropped: bool = True) -> dict:
     """Install or update from a GOG ``.sh`` installer without downloading it: only the compressed data of files
     that are new or changed is fetched (``old`` is the file list saved by the previous run, path -> [crc, size]).
-    Returns the new file list. Files the new version no longer has are removed."""
+    Returns the new file list. Files the new version no longer has are removed (unless ``remove_dropped`` is off:
+    the caller then does it once every package is done). ``verify`` checks every file on disk (repair)."""
     install_dir.mkdir(parents=True, exist_ok=True)
     root = install_dir.resolve()
     ctx.stage("Reading the installer")
@@ -175,30 +189,43 @@ def install_linux_remote(session: requests.Session, ctx: JobContext, url: str, i
         raise IOError("Installer does not contain game data (data/noarch)")
     files = {m.filename[len(GAME_DATA):].rstrip("/"): [m.CRC, m.file_size] for m in members if not m.is_dir()}
     for m in members:
-        dest = (install_dir / m.filename[len(GAME_DATA):]).resolve()
-        if dest != root and root not in dest.parents:
+        dest = install_dir / m.filename[len(GAME_DATA):]
+        if not _inside(root, dest):
             raise IOError(f"Unsafe path in installer: {m.filename}")
         if m.is_dir():
             dest.mkdir(parents=True, exist_ok=True)
-    ctx.stage("Comparing with the installed files")
+    ctx.stage("Checking the installed files" if verify else "Comparing with the installed files")
     wanted = [m for m in members if not m.is_dir() and not _unchanged(
-        m, install_dir / m.filename[len(GAME_DATA):], (old or {}).get(m.filename[len(GAME_DATA):]))]
+        m, install_dir / m.filename[len(GAME_DATA):],
+        None if verify else (old or {}).get(m.filename[len(GAME_DATA):]))]
     ctx.set_total(sum(m.compress_size for m in wanted))
     ctx.set_done(0)
     ctx.stage(f"Downloading {len(wanted)} file{'s' if len(wanted) != 1 else ''}" if wanted else "Up to date")
     order = sorted(members, key=lambda m: m.header_offset)
     nxt = {id(a): b.header_offset for a, b in zip(order, order[1:])}
 
+    stop = threading.Event()
+
     def run(batch: list[zipfile.ZipInfo]) -> None:
-        remote = RemoteFile(session, url, ctx)
+        try:
+            remote = RemoteFile(session, url, ctx)
+            remote.stop = stop
+            _run(remote, batch)
+        except BaseException:
+            stop.set()  # the other connections give up at their next request
+            raise
+
+    def _run(remote: RemoteFile, batch: list[zipfile.ZipInfo]) -> None:
         with zipfile.ZipFile(remote) as zf:
             for i, m in enumerate(batch):
+                if stop.is_set():
+                    return
                 # read ahead up to the end of the run of wanted files that starts here
                 j = i
                 while j + 1 < len(batch) and nxt.get(id(batch[j])) == batch[j + 1].header_offset:
                     j += 1
                 remote.limit = nxt.get(id(batch[j]), remote.size)
-                _write_member(zf, m, install_dir / m.filename[len(GAME_DATA):], ctx)
+                _write_member(zf, m, install_dir / m.filename[len(GAME_DATA):], ctx, root)
 
     if wanted:
         wanted.sort(key=lambda m: m.header_offset)
@@ -215,12 +242,19 @@ def install_linux_remote(session: requests.Session, ctx: JobContext, url: str, i
         with ThreadPoolExecutor(max_workers=len(batches)) as pool:
             for f in [pool.submit(run, b) for b in batches if b]:
                 f.result()
-    for rel in set(old or {}) - set(files):  # files the new version dropped
-        p = install_dir / rel
-        if p.is_symlink() or p.is_file():
-            p.unlink()
+    if remove_dropped:
+        remove_files(install_dir, set(old or {}) - set(files))  # files the new version dropped
     fix_permissions(install_dir)
     return files
+
+
+def remove_files(root: Path, rels) -> None:
+    """Delete these files (paths relative to ``root``), never anything outside it."""
+    base = root.resolve()
+    for rel in rels:
+        p = root / rel
+        if _inside(base, p) and (p.is_symlink() or p.is_file()):
+            p.unlink()
 
 
 def fix_permissions(root: Path) -> int:
@@ -241,10 +275,12 @@ def fix_permissions(root: Path) -> int:
     return fixed
 
 
-def _write_member(z: zipfile.ZipFile, m: zipfile.ZipInfo, dest: Path, ctx: JobContext) -> None:
+def _write_member(z: zipfile.ZipFile, m: zipfile.ZipInfo, dest: Path, ctx: JobContext, root: Path) -> None:
     ctx.check()
     mode = (m.external_attr >> 16) & 0xFFFF
     dest.parent.mkdir(parents=True, exist_ok=True)
+    if not _inside(root, dest):  # a symlinked folder written earlier in this run must not lead out
+        raise IOError(f"Unsafe path in installer: {m.filename}")
     if stat.S_ISLNK(mode):
         target = z.read(m).decode("utf-8", "replace")
         if dest.is_symlink() or dest.exists():
@@ -252,10 +288,14 @@ def _write_member(z: zipfile.ZipFile, m: zipfile.ZipInfo, dest: Path, ctx: JobCo
         os.symlink(target, dest)
         return
     tmp = dest.with_name(f".{dest.name}.nbpart")
-    with z.open(m) as src, open(tmp, "wb") as out:  # zipfile checks the CRC when the member ends
-        while block := src.read(1 << 20):
-            out.write(block)
-    os.replace(tmp, dest)
+    try:
+        with z.open(m) as src, open(tmp, "wb") as out:  # zipfile checks the CRC when the member ends
+            while block := src.read(1 << 20):
+                out.write(block)
+        os.replace(tmp, dest)
+    except BaseException:
+        tmp.unlink(missing_ok=True)  # cancelled or corrupt: leave no half file behind
+        raise
     if mode & 0o777:
         os.chmod(dest, mode & 0o777)
 
@@ -277,7 +317,7 @@ def extract_linux_installer(ctx: JobContext, installer_path: Path, install_dir: 
             if not rel:
                 continue
             dest = (install_dir / rel)
-            if root not in dest.resolve().parents and dest.resolve() != root:
+            if not _inside(root, dest):
                 raise IOError(f"Unsafe path in installer: {m.filename}")
             mode = (m.external_attr >> 16) & 0xFFFF
             if m.is_dir():
