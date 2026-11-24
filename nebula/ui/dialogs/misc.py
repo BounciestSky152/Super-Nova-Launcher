@@ -316,11 +316,20 @@ class DlcDialog(QDialog):
         lay.addLayout(_buttons(self, "Apply"))
 
     def wanted(self) -> list[str]:
-        """The DLC ticked (to be installed)."""
-        return [self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())
-                if self.list.item(i).data(Qt.ItemDataRole.UserRole)
-                and self.list.item(i).flags() & Qt.ItemFlag.ItemIsUserCheckable
-                and self.list.item(i).checkState() == Qt.CheckState.Checked]
+        """The DLC to have installed: the ticked ones, plus installed ones that can't be ticked (not owned as far as
+        Super Nova knows: offline, or imported), which are never removed by accident."""
+        out = []
+        for i in range(self.list.count()):
+            it = self.list.item(i)
+            did = it.data(Qt.ItemDataRole.UserRole)
+            if not did:
+                continue
+            if it.flags() & Qt.ItemFlag.ItemIsEnabled:  # owned rows (Qt items are tickable by default)
+                if it.checkState() == Qt.CheckState.Checked:
+                    out.append(did)
+            elif did in self.installed:
+                out.append(did)
+        return out
 
 
 class TextInputDialog(QDialog):

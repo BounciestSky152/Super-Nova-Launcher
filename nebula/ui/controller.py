@@ -392,8 +392,9 @@ class UiController:
                     sub.addAction(t.name, lambda t=t: self.play(e, game.uid, t.id))
         elif state == "not_installed":
             m.addAction(icons.icon("download"), "Install", lambda: self.install(e.primary))
-        if state == "update" and integ.supports(base.UPDATE):
-            m.addAction(icons.icon("download"), "Update now", lambda: self.update(game))
+        target = self.update_target(e) if state == "update" else None
+        if target is not None:  # the outdated copy, which may be another instance than the default one
+            m.addAction(icons.icon("download"), "Update now", lambda: self.update(target))
         if len(e.games) > 1:
             sub = m.addMenu("Copies")
             for g in e.games:

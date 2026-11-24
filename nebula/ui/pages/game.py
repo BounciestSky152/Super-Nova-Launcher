@@ -6,7 +6,7 @@ import dataclasses
 import time
 from datetime import datetime
 
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer
 from PySide6.QtWidgets import (QComboBox, QDialog, QFrame, QGridLayout, QHBoxLayout, QMenu, QProgressBar,
                                QPushButton, QScrollArea, QStackedWidget, QTabBar, QVBoxLayout, QWidget)
 
@@ -147,10 +147,8 @@ class GamePage(Page):
         self.update_note.setIcon(icons.icon("download", theme.WARNING))
         self.update_note.setCursor(Qt.CursorShape.PointingHandCursor)
         self.update_note.setToolTip("A newer version is out. Click to update (you can keep playing this one).")
-        backing = "rgba(255, 255, 255, 0.88)" if theme.light() else "transparent"  # readable on the bright sky
-        self.update_note.setStyleSheet(f"QPushButton#UpdateNote {{ color: {theme.WARNING}; background: {backing};"
-                                       f" border: 1px solid {theme.WARNING}; border-radius: 12px; padding: 4px 10px;"
-                                       " font-weight: 600; }")
+        self._note_light = None
+        self._style_update_note()
         self.update_note.clicked.connect(self._update_from_note)
         self.update_note.hide()
         actions.addWidget(self.update_note)
@@ -251,7 +249,7 @@ class GamePage(Page):
         col.addStretch(1)
 
         bus = services.bus
-        bus.game_changed.connect(lambda k: self._refresh_header() if k == self.key else None)
+        bus.game_changed.connect(self._on_game_changed)
         bus.library_changed.connect(lambda: self._refresh_header() if self.key and self.isVisible() else None)
         bus.jobs_changed.connect(self._refresh_actions)
         bus.job_progress.connect(self._job_progress)
@@ -593,6 +591,22 @@ class GamePage(Page):
             self.gog_offer.show()
 
         tasks.run_async(gog.find_in_store, title, on_done=done, on_error=lambda _e: None)
+
+    def _style_update_note(self) -> None:
+        """Colours of the update pill for the current theme (re-applied when the theme switches)."""
+        if self._note_light == theme.light():
+            return
+        self._note_light = theme.light()
+        backing = "rgba(255, 255, 255, 0.88)" if theme.light() else "transparent"  # readable on the bright sky
+        self.update_note.setIcon(icons.icon("download", theme.WARNING))
+        self.update_note.setStyleSheet(f"QPushButton#UpdateNote {{ color: {theme.WARNING}; background: {backing};"
+                                       f" border: 1px solid {theme.WARNING}; border-radius: 12px; padding: 4px 10px;"
+                                       " font-weight: 600; }")
+
+    def changeEvent(self, e):  # noqa: N802
+        super().changeEvent(e)
+        if e.type() == QEvent.Type.StyleChange:
+            self._style_update_note()
 
     def _refresh_actions(self) -> None:
         e = self.entry
@@ -1139,13 +1153,30 @@ class GamePage(Page):
             self.ach_list.addWidget(row)
 
     # ---------------------------------------------------------------- dlc
+    def _on_game_changed(self, key: str) -> None:
+        if key != self.key:
+            return
+        self._refresh_header()
+        e = self.entry
+        if e and e.primary.uid in self._details_cache:  # installed DLC may have changed
+            self._render_dlc(self._details_cache[e.primary.uid])
+
+    def _installed_dlcs(self, g) -> set:
+        """The DLC installed right now (the cached details were worked out when the page first loaded)."""
+        live = self.s.library.game(g.uid) if g else None
+        return set((live or g).extra.get("installed_dlcs", [])) if g else set()
+
+    def _toggle_dlc(self, g, did: str) -> None:
+        have = self._installed_dlcs(g)
+        self.ctl.set_dlcs(g, sorted(have - {did} if did in have else have | {did}))
+
     def _render_dlc(self, details) -> None:
         clear_layout(self.dlc_list)
         dlcs = getattr(details, "dlcs", []) or []
         g = self._game_for(base.DLC)
         manageable = bool(g and g.installed)
         self.dlc_install.setVisible(manageable and any(d.get("owned") for d in dlcs))
-        installed = {d["id"] for d in dlcs if d.get("installed")}
+        installed = self._installed_dlcs(g) if manageable else {d["id"] for d in dlcs if d.get("installed")}
         if not dlcs:
             self.dlc_list.addWidget(label("No DLC for this game.", "Faint"))
             return
@@ -1157,18 +1188,17 @@ class GamePage(Page):
             img.set_source([d.get("cover", "")], d["title"])
             rl.addWidget(img)
             rl.addWidget(label(d["title"]), 1)
-            state = "Installed" if d.get("installed") else ("Owned" if d.get("owned") else "Not owned")
-            st = label(state, "Success" if d.get("installed") else ("Subtle" if d.get("owned") else "Faint"))
+            on = d["id"] in installed
+            state = "Installed" if on else ("Owned" if d.get("owned") else "Not owned")
+            st = label(state, "Success" if on else ("Subtle" if d.get("owned") else "Faint"))
             rl.addWidget(st)
             if not d.get("owned") and d.get("url"):
                 b = button("Store", "external")
                 b.clicked.connect(lambda _c=False, u=d["url"]: xdg_open(u))
                 rl.addWidget(b)
             elif d.get("owned") and manageable:
-                on = d["id"] in installed
                 b = button("Remove" if on else "Install", "trash" if on else "download")
-                want = sorted(installed - {d["id"]}) if on else sorted(installed | {d["id"]})
-                b.clicked.connect(lambda _c=False, w=want: self.ctl.set_dlcs(g, w))
+                b.clicked.connect(lambda _c=False, did=d["id"]: self._toggle_dlc(g, did))
                 rl.addWidget(b)
             self.dlc_list.addWidget(row)
 

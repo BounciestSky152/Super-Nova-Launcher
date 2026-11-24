@@ -266,3 +266,42 @@ def test_file_moving_from_dlc_to_base_is_kept(services, monkeypatch, tmp_path):
     finally:
         base_srv.shutdown()
         dlc_srv.shutdown()
+
+
+def test_dlc_dialog_never_drops_installed_dlc_it_cannot_tick(qapp):
+    """Installed DLC Super Nova doesn't know as owned (offline, imported) stays installed when you press Apply."""
+    from types import SimpleNamespace
+
+    from nebula.ui.dialogs.misc import DlcDialog
+
+    dlg = DlcDialog(SimpleNamespace(dlcs=[{"id": "1", "title": "A", "owned": False, "installed": True},
+                                          {"id": "2", "title": "B", "owned": True, "installed": False}]))
+    assert set(dlg.wanted()) == dlg.installed == {"1"}  # nothing changed: nothing to apply
+
+
+def test_dlc_tab_buttons_use_the_installed_dlc_at_click_time(qapp, services, monkeypatch):
+    """Installing one DLC from the tab never uninstalls another, even when the tab was drawn earlier."""
+    from types import SimpleNamespace
+
+    from nebula.core.models import Game
+    from nebula.ui import theme
+    from nebula.ui.main_window import MainWindow
+
+    theme.apply(qapp)
+    g = Game("gog", "77", "Some Game", installed=True, install_path="/tmp", platform="linux")
+    g.extra["installed_dlcs"] = []
+    services.library.update_game(g)
+    w = MainWindow(services)
+    gp = w.pages["game"]
+    gp.key = services.library.entry_for_uid(g.uid).key
+    gp.entry = services.library.entry(gp.key)
+    details = SimpleNamespace(dlcs=[{"id": "d1", "title": "One", "owned": True, "installed": False},
+                                    {"id": "d2", "title": "Two", "owned": True, "installed": False}])
+    calls = []
+    monkeypatch.setattr(w.ctl, "set_dlcs", lambda game, want: calls.append(sorted(want)))
+    gp._render_dlc(details)
+    live = services.library.game(g.uid)
+    live.extra["installed_dlcs"] = ["d1"]  # d1 got installed after the tab was drawn
+    gp._toggle_dlc(live, "d2")
+    assert calls == [["d1", "d2"]]
+    w.close()
